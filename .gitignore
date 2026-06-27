@@ -1,0 +1,15 @@
+# ── OS noise ──────────────────────────────────────────────────────────────────
+.DS_Store
+*.swp
+
+# ── iOS signing — NEVER commit private keys or certificates ───────────────────
+Apple/**/*.p12
+Apple/**/*.p8
+Apple/**/*.mobileprovision
+
+# ── Android keystores — NEVER commit; losing them = can't update Play Store ───
+Android/**/*.jks
+Android/**/*.jks.pkcs12.bak
+
+# ── Firebase service account keys ─────────────────────────────────────────────
+Android/Firebase/*.json

@@ -1,0 +1,47 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build & Release macOS
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.x'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: tyrian_mobile
+        run: flutter pub get
+
+      - name: Build macOS (debug)
+        working-directory: tyrian_mobile
+        run: flutter build macos --debug
+
+      - name: Package as ZIP
+        run: |
+          cd "tyrian_mobile/build/macos/Build/Products/Debug"
+          zip -r "$OLDPWD/Kiran-${{ github.ref_name }}-macOS.zip" "tyrian_mobile.app"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Kiran-${{ github.ref_name }}-macOS.zip
+          name: Kiran ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: true

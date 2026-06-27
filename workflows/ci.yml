@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  test:
+    name: Tests & Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.x'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: tyrian_mobile
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: tyrian_mobile
+        run: flutter analyze
+
+      - name: Test
+        working-directory: tyrian_mobile
+        run: flutter test
+
+  build-android-debug:
+    name: Android Debug Build
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.x'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: tyrian_mobile
+        run: flutter pub get
+
+      - name: Build APK (debug)
+        working-directory: tyrian_mobile
+        run: flutter build apk --debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-${{ github.sha }}
+          path: tyrian_mobile/build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
+
+  build-ios-debug:
+    name: iOS Debug Build (Simulator)
+    runs-on: macos-15
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.x'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: tyrian_mobile
+        run: flutter pub get
+
+      - name: Build iOS (simulator, no signing)
+        working-directory: tyrian_mobile
+        run: flutter build ios --debug --simulator --no-codesign
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-debug-simulator-${{ github.sha }}
+          path: tyrian_mobile/build/ios/iphonesimulator/Runner.app
+          retention-days: 7

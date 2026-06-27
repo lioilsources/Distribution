@@ -1,0 +1,57 @@
+name: Release Linux
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build & Release Linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.x'
+          channel: stable
+          cache: true
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Install dependencies
+        working-directory: tyrian_mobile
+        run: flutter pub get
+
+      - name: Build Linux (debug)
+        working-directory: tyrian_mobile
+        run: flutter build linux --debug
+
+      - name: Package as tar.gz
+        run: |
+          tar -czf "Kiran-${{ github.ref_name }}-Linux.tar.gz" \
+            -C tyrian_mobile/build/linux/x64/debug/bundle .
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Kiran-${{ github.ref_name }}-Linux.tar.gz
+          name: Kiran ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: true
