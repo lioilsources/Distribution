@@ -89,36 +89,40 @@ grep -n "CODE_SIGN_IDENTITY\|CODE_SIGN_STYLE\|PROVISIONING_PROFILE_SPECIFIER\|DE
   <AppDir>/ios/Runner.xcodeproj/project.pbxproj
 ```
 
-Release sekce **musí** obsahovat (všechny čtyři):
+**Funkční přístup (ověřeno na SwypeKids): podpis NE v projektu, ale až při exportu.**
+Runner target v Release má jen **automatic** signing — aby šel lokální `flutter run`:
 
 ```
-CODE_SIGN_IDENTITY = "Apple Distribution";
-CODE_SIGN_STYLE = Manual;
+CODE_SIGN_STYLE = Automatic;
 DEVELOPMENT_TEAM = P82HWPG7FN;
-PROVISIONING_PROFILE_SPECIFIER = "CI_PROFILE_NAME";
 ```
 
-Pokud chybí `CODE_SIGN_IDENTITY = "Apple Distribution"` v Release → přidej:
+> ❌ **Nedávej do projektu manuální podpis** (`CODE_SIGN_STYLE = Manual` +
+> `PROVISIONING_PROFILE_SPECIFIER`). S placeholderem (`CI_PROFILE_NAME`) rozbiješ
+> lokální `flutter run` (`"Runner" requires a provisioning profile`).
+>
+> ❌ **A nepředávej podpis ani jako globální `xcodebuild` build settings**
+> (`CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=... PROVISIONING_PROFILE_SPECIFIER=...`).
+> Aplikuje se to na **všechny targety včetně CocoaPods** → archive selže na
+> `Pods-Runner / flutter_tts does not support provisioning profiles`.
 
-```bash
-# Najdi řádek s CODE_SIGN_STYLE = Manual; v Release sekci a přidej nad něj
-# Nebo edituj ručně v Xcode: Runner → Signing & Capabilities → Release → Manual
+**Místo toho CI:**
+1. **archivuje bez podpisu** — `xcodebuild archive ... DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGNING_ALLOWED=NO`
+2. **podepíše až při exportu** — `xcodebuild -exportArchive -exportOptionsPlist ios/ExportOptions.plist`
+
+Potřebuješ `ios/ExportOptions.plist` (CI do něj jen doplní teamID a jméno profilu):
+
+```xml
+<key>method</key><string>app-store</string>
+<key>teamID</key><string>P82HWPG7FN</string>
+<key>signingStyle</key><string>manual</string>
+<key>provisioningProfiles</key>
+<dict><key>com.ol1n.<appname></key><string><jméno profilu></string></dict>
 ```
 
-`CI_PROFILE_NAME` je placeholder — CI ho nahradí UUID profilu při každém buildu.
-
-> ⚠️ **Pozor — tenhle přístup rozbije lokální `flutter run` na zařízení.** Manuální
-> podpis + neexistující `CI_PROFILE_NAME` v Release sekci způsobí lokálně
-> `"Runner" requires a provisioning profile`. SwypeKids proto používá **alternativu**:
-> v projektu nech `CODE_SIGN_STYLE = Automatic` (lokál se podepíše sám automatic
-> signingem na tvůj team) a manuální podpis předej až v CI jako override
-> `xcodebuild archive` příkazu — odpadá i sed-inject krok:
-> ```bash
-> xcodebuild archive ... DEVELOPMENT_TEAM=$TEAM_ID \
->   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" \
->   PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME"
-> ```
-> (`align-project.sh` zatím generuje starý placeholder+sed přístup.)
+> Pozn.: `align-project.sh` zatím generuje starý placeholder+sed přístup — při dalším
+> setupu ho srovnej na tenhle (automatic v projektu + archive `CODE_SIGNING_ALLOWED=NO`
+> + export přes plist).
 
 ---
 
@@ -248,27 +252,22 @@ gh run view --log-failed --job=<JOB_ID> --repo lioilsources/<AppName>
 
 ### iOS — Archive selže
 
-**Příznak:** `No profile for team matching 'XYZ' found`  
-→ Zkontroluj že inject kroku správně nahradil `CI_PROFILE_NAME` UUID:
+**Příznak:** `Pods-Runner does not support provisioning profiles` /
+`flutter_tts does not support provisioning profiles, but provisioning profile ... has been manually specified`
+→ Předáváš podpis jako **globální** `xcodebuild` build settings, takže leze i na
+CocoaPods targety. **Archivuj bez podpisu a podepiš až při exportu** (viz Krok 4):
 ```bash
-grep PROVISIONING_PROFILE_SPECIFIER ios/Runner.xcodeproj/project.pbxproj
-```
-Musí obsahovat UUID (tvar `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`), ne jméno profilu.
-
-**Příznak:** `project 'Runner' is damaged - parse error`  
-→ Zkontroluj sed v inject kroku — musí mít **dvě expresky** (s i bez uvozovek):
-```bash
-sed -i '' \
-  -e "s/\"CI_PROFILE_NAME\"/\"$PROFILE_UUID\"/g" \
-  -e "s/CI_PROFILE_NAME/\"$PROFILE_UUID\"/g"
+xcodebuild archive ... DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGNING_ALLOWED=NO
+xcodebuild -exportArchive -archivePath ... -exportOptionsPlist ios/ExportOptions.plist -exportPath ...
 ```
 
-**Příznak:** `X has conflicting provisioning settings`  
-→ Odstraň `CODE_SIGN_IDENTITY="Apple Distribution"` z xcodebuild příkazové řádky.
-Toto nastavení musí být POUZE v `project.pbxproj` pro Runner target.
+**Příznak:** `"Runner" requires a provisioning profile` (lokálně i v CI)
+→ V projektu je manuální podpis s placeholderem `CI_PROFILE_NAME`. Přepni Runner
+Release na `CODE_SIGN_STYLE = Automatic` (viz Krok 4).
 
-**Příznak:** `No signing certificate iOS Distribution found`  
-→ `CODE_SIGN_IDENTITY = "Apple Distribution"` chybí v Release sekci `project.pbxproj`.
+> Pozn.: Starý přístup (manuální podpis v `project.pbxproj` + sed-inject `CI_PROFILE_NAME`
+> → UUID) je **opuštěný** — rozbíjel lokální buildy. Pokud na něj narazíš ve starší
+> appce, migruj na automatic-v-projektu + export-přes-plist.
 
 ### iOS i Android — binárka se v CI nedá dekódovat (`gh secret set --body -` bug)
 
@@ -327,6 +326,12 @@ keytool -list -keystore Android/<AppName>/upload-keystore.jks \
 
 ### iOS — TestFlight upload selže
 
+**Příznak:** `Cannot determine the Apple ID from Bundle ID 'com.ol1n.<appname>' and platform 'IOS'. (19)`
+→ **Appka neexistuje v App Store Connect.** Build i podpis prošly, jen není kam
+nahrát. Vytvoř ji (Krok 2): ASC → My Apps → + → New App → Bundle ID `com.ol1n.<appname>`.
+Pak re-trigger. (Stejná příčina jako `409 Conflict`.) API klíč/issuer jsou OK — kdyby
+nebyly, chyba by byla o autentizaci, ne o Bundle ID.
+
 **Příznak:** `Expected --api-issuer argument to have a value`
 → Issuer secret je prázdný/špatný. **Pozor na název:** workflow čte
 `APP_STORE_CONNECT_API_ISSUER_ID`, ale starší skript nastavoval jen `APPSTORE_ISSUER_ID`.
@@ -335,6 +340,19 @@ Aktuální skript nastaví oba. Ověř, že existují oba a mají délku 36:
 gh secret list --repo lioilsources/<AppName> | grep -i issuer
 gh secret set APP_STORE_CONNECT_API_ISSUER_ID --repo ... --body "edeaacd0-9ce8-4fae-91b7-e451efabc799"
 ```
+
+### Android — Firebase upload selže (HTTP 400)
+
+**Příznak:** `Error: failed to ... release. HTTP Error: 400, Request contains an invalid argument.`
+→ Dvě nejčastější příčiny:
+1. **Špatné `FIREBASE_ANDROID_APP_ID`.** Musí přesně sedět s appkou v projektu —
+   vezmi `mobilesdk_app_id` z `google-services.json` (tvar `1:NNN:android:XXX`):
+   ```bash
+   jq -r '.client[]|select(.client_info.android_client_info.package_name=="com.ol1n.<appname>")|.client_info.mobilesdk_app_id' \
+     Android/<AppName>/google-services.json
+   ```
+2. **Skupina v `groups:` neexistuje** nebo má jiný **alias** (case-sensitive, ne
+   zobrazované jméno). Firebase Console → App Distribution → Testers & groups.
 
 ### Android — Firebase upload přeskočen
 
