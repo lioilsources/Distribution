@@ -13,6 +13,8 @@
 #   4. ios/Runner.xcodeproj/project.pbxproj — adds CODE_SIGN_IDENTITY /
 #      CODE_SIGN_STYLE / PROVISIONING_PROFILE_SPECIFIER to Debug & Profile
 #      Runner configs if they are missing (Release config untouched)
+#   5. ios/Runner/Info.plist — sets ITSAppUsesNonExemptEncryption=false so
+#      TestFlight skips the export-compliance prompt on every build
 #
 # Source of truth: sibling GitHub/Kiran repo, auto-detected from script location.
 #
@@ -343,6 +345,27 @@ else:
     print('    ✓ project.pbxproj — no changes needed after inspection')
 PYEOF
     fi
+  fi
+fi
+
+# ── 5. Info.plist — export compliance ────────────────────────────────────────
+info "Info.plist (export compliance)"
+TARGET_INFO_PLIST="$TARGET_DIR/$APP_DIR/ios/Runner/Info.plist"
+if [[ ! -f "$TARGET_INFO_PLIST" ]]; then
+  warn "Info.plist not found — skipping: $TARGET_INFO_PLIST"
+else
+  _CUR=$(/usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" "$TARGET_INFO_PLIST" 2>/dev/null || echo "")
+  if [[ "$_CUR" == "false" ]]; then
+    echo "    ✓ ITSAppUsesNonExemptEncryption — already false"
+  elif $DRY_RUN; then
+    echo "    ~ would set ITSAppUsesNonExemptEncryption = false (current: ${_CUR:-<missing>})"
+  else
+    # false = app uses no non-exempt encryption → skips the TestFlight export
+    # compliance prompt on every build. Flip to true only if you add real crypto.
+    /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$TARGET_INFO_PLIST" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$TARGET_INFO_PLIST"
+    ok "ITSAppUsesNonExemptEncryption = false"
+    CHANGES=$((CHANGES + 1))
   fi
 fi
 
