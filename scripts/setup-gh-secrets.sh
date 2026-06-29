@@ -110,11 +110,13 @@ ASC_PRIVATE_KEY=""           # auto-discovered if empty
 ANDROID_KEYSTORE=""          # auto-discovered if empty
 ANDROID_KEY_ALIAS="upload"
 ANDROID_KEYSTORE_PASSWORD="" # looked up in BW or generated
+BUNDLE_ID=""                 # defaults to com.ol1n.<AppName>; used to match Firebase app id
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo)                      REPO="$2";                      shift 2 ;;
     --app)                       APP_NAME="$2";                  shift 2 ;;
+    --bundle-id)                 BUNDLE_ID="$2";                 shift 2 ;;
     --provision-profile)         PROVISION_PROFILE="$2";         shift 2 ;;
     --asc-private-key)           ASC_PRIVATE_KEY="$2";           shift 2 ;;
     --android-keystore)          ANDROID_KEYSTORE="$2";          shift 2 ;;
@@ -147,6 +149,7 @@ ok "Vault loaded ($(echo "$BW_ITEMS" | jq length) items)"
 echo ""
 
 [[ -n "$APP_NAME" ]] || APP_NAME="${REPO##*/}"
+[[ -n "$BUNDLE_ID" ]] || BUNDLE_ID="com.ol1n.${APP_NAME}"
 
 info "Repo:     $REPO"
 info "App name: $APP_NAME  (Distribution folder key)"
@@ -368,6 +371,51 @@ gh_secret ANDROID_KEYSTORE_BASE64   "$KEYSTORE_B64"
 gh_secret ANDROID_KEYSTORE_PASSWORD "$ANDROID_KEYSTORE_PASSWORD"
 gh_secret ANDROID_KEY_ALIAS         "$ANDROID_KEY_ALIAS"
 gh_secret ANDROID_KEY_PASSWORD      "$ANDROID_KEYSTORE_PASSWORD"
+
+# ── 5. Firebase App Distribution (Android) ───────────────────────────────────
+echo ""
+info "Firebase App Distribution..."
+
+# Service account: the FIREBASE one. The Google Play publisher SA has NO App
+# Distribution permission, so uploading it gives CI a HTTP 403 at upload time.
+FIREBASE_SA=""
+for f in "$DIST_DIR/Android/_GoogleConsole/Firebase/"*.json; do
+  [[ -f "$f" ]] || continue
+  if jq -e '.type=="service_account" and .private_key and .client_email' "$f" >/dev/null 2>&1; then
+    FIREBASE_SA="$f"; break
+  fi
+done
+if [[ -n "$FIREBASE_SA" ]]; then
+  SA_EMAIL=$(jq -r '.client_email' "$FIREBASE_SA")
+  case "$SA_EMAIL" in
+    google-play*|*play-publisher*) echo "⚠️   $FIREBASE_SA je Google Play SA ($SA_EMAIL) — App Distribution potřebuje firebase-adminsdk SA, ne tenhle!";;
+    *) info "Firebase SA: $SA_EMAIL" ;;
+  esac
+  gh_secret FIREBASE_SERVICE_ACCOUNT_KEY "$(cat "$FIREBASE_SA")"
+else
+  echo "⚠️   Firebase service account nenalezen — FIREBASE_SERVICE_ACCOUNT_KEY přeskočen"
+  echo "    Očekáváno: $DIST_DIR/Android/_GoogleConsole/Firebase/*.json (service_account JSON)"
+fi
+
+# App id: from the per-app google-services.json, matched by package name.
+GSVC="$DIST_DIR/Android/${APP_NAME}/google-services.json"
+if [[ -f "$GSVC" ]]; then
+  APP_ID=$(jq -r --arg pkg "$BUNDLE_ID" \
+    '.client[] | select(.client_info.android_client_info.package_name==$pkg) | .client_info.mobilesdk_app_id' "$GSVC" 2>/dev/null | head -1)
+  if [[ -z "$APP_ID" ]]; then  # case-insensitive fallback on the app-name suffix
+    SFX=$(printf '%s' "$APP_NAME" | tr '[:upper:]' '[:lower:]')
+    APP_ID=$(jq -r --arg sfx "$SFX" \
+      '.client[] | select((.client_info.android_client_info.package_name|ascii_downcase)|endswith("."+$sfx)) | .client_info.mobilesdk_app_id' "$GSVC" 2>/dev/null | head -1)
+  fi
+  if [[ -n "$APP_ID" ]]; then
+    info "Firebase app id: $APP_ID  (bundle $BUNDLE_ID)"
+    gh_secret FIREBASE_ANDROID_APP_ID "$APP_ID"
+  else
+    echo "⚠️   V $GSVC není klient pro '$BUNDLE_ID' — FIREBASE_ANDROID_APP_ID přeskočen (zkus --bundle-id)"
+  fi
+else
+  echo "⚠️   google-services.json nenalezen ($GSVC) — FIREBASE_ANDROID_APP_ID přeskočen"
+fi
 
 # ── done ──────────────────────────────────────────────────────────────────────
 echo ""

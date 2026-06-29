@@ -63,20 +63,19 @@ Apple/<AppName>/<cokoliv>.mobileprovision
 1. Vyber nebo vytvoř Firebase projekt
 2. Add app → Android → Package name: `com.ol1n.<appname>`
 3. Stáhni `google-services.json` → ulož do `<AppDir>/android/app/google-services.json`
-4. Project Settings → Service Accounts → **Generate new private key** → ulož JSON
+4. Project Settings → Service Accounts → **Generate new private key** → ulož do
+   `Distribution/Android/_GoogleConsole/Firebase/*.json`
+5. `google-services.json` ulož do `Distribution/Android/<AppName>/google-services.json`
+   (i do `<AppDir>/android/app/`)
 
-```bash
-# Nastav secrets
-gh secret set FIREBASE_ANDROID_APP_ID \
-  --repo lioilsources/<AppName> \
-  --body "1:XXXXXXXXXX:android:XXXXXXXXXX"
-
-gh secret set FIREBASE_SERVICE_ACCOUNT_KEY \
-  --repo lioilsources/<AppName> \
-  < /path/to/firebase-service-account.json
-```
-
-App ID najdeš: Project Settings → Your apps → Android app → App ID
+> ✅ **`FIREBASE_ANDROID_APP_ID` i `FIREBASE_SERVICE_ACCOUNT_KEY` nastaví automaticky
+> `setup-gh-secrets.sh` (Krok 6)** — app id vytáhne z `google-services.json` podle
+> bundle id, SA vezme z `Android/_GoogleConsole/Firebase/*.json`. Ruční `gh secret set`
+> už netřeba; stačí mít ty dva soubory na místě.
+>
+> ⚠️ **Pozor: použij Firebase SA (`firebase-adminsdk-…`), NE Google Play SA**
+> (`google-play-publisher@…`). Play SA nemá App Distribution právo → CI dá HTTP 403.
+> Skript to hlídá (varuje, když email vypadá jako play-publisher).
 
 ---
 
@@ -353,6 +352,18 @@ gh secret set APP_STORE_CONNECT_API_ISSUER_ID --repo ... --body "edeaacd0-9ce8-4
    ```
 2. **Skupina v `groups:` neexistuje** nebo má jiný **alias** (case-sensitive, ne
    zobrazované jméno). Firebase Console → App Distribution → Testers & groups.
+
+**Příznak:** `HTTP Error: 403, The caller does not have permission`
+→ V `FIREBASE_SERVICE_ACCOUNT_KEY` je **špatný service account** — typicky Google
+Play SA (`google-play-publisher@…`) místo Firebase (`firebase-adminsdk-…`). Play SA
+nemá App Distribution právo. Přenastav z Firebase JSONu:
+```bash
+gh secret set FIREBASE_SERVICE_ACCOUNT_KEY --repo lioilsources/<AppName> \
+  < Android/_GoogleConsole/Firebase/<projekt>-*.json
+```
+(Když to padá i s Firebase SA, přidej mu roli `roles/firebaseappdistro.admin`.)
+Ověř, že jiná appka ve stejném projektu Firebase upload zvládá — pokud ano, je to
+jen špatný secret u téhle appky, ne chybějící role.
 
 ### Android — Firebase upload přeskočen
 
