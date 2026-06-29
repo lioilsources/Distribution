@@ -75,7 +75,10 @@ validate_p12() {
 
 gh_secret() {
   local name="$1" value="$2"
-  printf '%s' "$value" | gh secret set "$name" --repo "$REPO" --body -
+  # NOTE: do NOT pass `--body -`. gh treats `--body` as a literal string when
+  # given (so `--body -` sets the secret to "-"!); it only reads stdin when
+  # --body is omitted entirely. Pipe the value and leave --body off.
+  printf '%s' "$value" | gh secret set "$name" --repo "$REPO"
   ok "$name"
 }
 

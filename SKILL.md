@@ -270,6 +270,23 @@ Toto nastavení musí být POUZE v `project.pbxproj` pro Runner target.
 **Příznak:** `No signing certificate iOS Distribution found`  
 → `CODE_SIGN_IDENTITY = "Apple Distribution"` chybí v Release sekci `project.pbxproj`.
 
+### iOS i Android — binárka se v CI nedá dekódovat (`gh secret set --body -` bug)
+
+**Příznak:** iOS `security: ... Unable to decode the provided data`, **nebo** Android
+`Failed to read key ... Tag number over 30 is not supported`. Tj. dekódovaný p12/jks
+je **garbage**, ne špatné heslo.
+
+**Příčina:** secret se nahrál jako doslova `-`. `gh secret set NAME --body -` **nepíše
+ze stdin** — `--body` bere hodnotu doslova (čte stdin jen když `--body` úplně chybí),
+takže `-` se uloží jako jednoznakový secret a `base64 --decode "-"` = garbage.
+
+**Fix:** ve `gh_secret` posílej hodnotu pipou a `--body` vynech:
+```bash
+printf '%s' "$value" | gh secret set "$name" --repo "$REPO"   # ✅
+# NE:  ... | gh secret set "$name" --repo "$REPO" --body -      # ❌ uloží "-"
+```
+Ověř délku po nahrání (např. base64 certu má mít tisíce znaků, ne 1).
+
 ### iOS — Import signing certificate selže
 
 **Příznak:** `security: SecKeychainItemImport: The user name or passphrase you entered is not correct.`
