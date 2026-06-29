@@ -41,6 +41,38 @@ require() {
   done
 }
 
+# macOS system `openssl` is LibreSSL: it can't decrypt modern PBES2/AES p12s
+# exported from Keychain and lacks -legacy, so it reports false "wrong password"
+# results. Find a real OpenSSL 3 (Homebrew) for p12 validation.
+OPENSSL3="$(
+  for c in /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl /opt/homebrew/bin/openssl /usr/local/bin/openssl openssl; do
+    command -v "$c" &>/dev/null && "$c" version 2>/dev/null | grep -q '^OpenSSL 3' && { echo "$c"; break; }
+  done
+)"
+
+# validate_p12 <file> <password> → 0 if the password opens the cert.
+# Uses OpenSSL 3 (keychain-free, reliable for modern Keychain-exported p12s).
+# A throwaway `security import` keychain is NOT used here — a freshly created
+# keychain is locked, so it yields false negatives regardless of the password.
+# Falls back to `security` only when no OpenSSL 3 exists (non-macOS / no brew).
+validate_p12() {
+  local file="$1" pass="$2"
+  if [[ -n "$OPENSSL3" ]]; then
+    "$OPENSSL3" pkcs12 -in "$file" -passin pass:"$pass" -noout 2>/dev/null && return 0
+    "$OPENSSL3" pkcs12 -in "$file" -passin pass:"$pass" -legacy -noout 2>/dev/null && return 0
+    return 1
+  fi
+  local kc rc=1
+  kc="$(mktemp -d)/validate.keychain-db"
+  if security create-keychain -p tmp "$kc" >/dev/null 2>&1; then
+    security unlock-keychain -p tmp "$kc" >/dev/null 2>&1
+    security import "$file" -P "$pass" -k "$kc" -A >/dev/null 2>&1 && rc=0
+    security delete-keychain "$kc" >/dev/null 2>&1
+    return $rc
+  fi
+  return 0  # can't validate → don't block the run
+}
+
 gh_secret() {
   local name="$1" value="$2"
   printf '%s' "$value" | gh secret set "$name" --repo "$REPO" --body -
@@ -133,7 +165,7 @@ fi
 
 # ASC private key
 if [[ -z "$ASC_PRIVATE_KEY" ]]; then
-  KEY_GLOB="$DIST_DIR/Apple/Key/AuthKey_*.p8"
+  KEY_GLOB="$DIST_DIR/Apple/_Keys/AuthKey_*.p8"
   # shellcheck disable=SC2206
   KEY_MATCHES=( $KEY_GLOB )
   if [[ -f "${KEY_MATCHES[0]}" ]]; then
@@ -156,11 +188,23 @@ echo ""
 # ── 1. Shared iOS signing secrets from Bitwarden ─────────────────────────────
 info "Reading shared iOS secrets from Bitwarden..."
 
+P12_PASSWORD=$(bw_password "CI / IOS_P12_PASSWORD")
+[[ -n "$P12_PASSWORD" ]] || die "Could not read CI / IOS_P12_PASSWORD from Bitwarden"
+
+# The shared distribution cert lives in the Bitwarden note 'CI / IOS_P12_BASE64'
+# (same value all apps use — proven working in CI). Do NOT read the loose
+# Apple/_Keys/distribution.p12 file: it can be a stale/different export whose
+# password no longer matches, which silently breaks signing.
 P12_BASE64=$(bw_notes "CI / IOS_P12_BASE64")
 [[ -n "$P12_BASE64" ]] || die "Could not read CI / IOS_P12_BASE64 from Bitwarden"
 
-P12_PASSWORD=$(bw_password "CI / IOS_P12_PASSWORD")
-[[ -n "$P12_PASSWORD" ]] || die "Could not read CI / IOS_P12_PASSWORD from Bitwarden"
+# Validate the password actually opens this cert (same check CI's security import does).
+_P12_TMP="$(mktemp)"
+if ! printf '%s' "$P12_BASE64" | base64 --decode > "$_P12_TMP" 2>/dev/null || ! validate_p12 "$_P12_TMP" "$P12_PASSWORD"; then
+  rm -f "$_P12_TMP"
+  die "IOS_P12_PASSWORD does not open the cert in CI / IOS_P12_BASE64. Both Bitwarden items must come from the same cert export."
+fi
+rm -f "$_P12_TMP"
 
 KEYCHAIN_PASSWORD=$(bw_password "CI / IOS_KEYCHAIN_PASSWORD")
 [[ -n "$KEYCHAIN_PASSWORD" ]] || die "Could not read CI / IOS_KEYCHAIN_PASSWORD from Bitwarden"
@@ -194,16 +238,17 @@ ASC_KEY_ID=$(bw_password "CI / ASC_API_KEY_ID")
 [[ -n "$ASC_KEY_ID" ]] || die "Could not read CI / ASC_API_KEY_ID from Bitwarden"
 
 # Set both naming variants: old names for backwards compat, new names expected by workflow templates
-gh_secret APPSTORE_ISSUER_ID           "$ASC_ISSUER_ID"
-gh_secret APPSTORE_API_KEY_ID          "$ASC_KEY_ID"
-gh_secret APP_STORE_CONNECT_API_KEY_ID "$ASC_KEY_ID"
+gh_secret APPSTORE_ISSUER_ID              "$ASC_ISSUER_ID"
+gh_secret APP_STORE_CONNECT_API_ISSUER_ID "$ASC_ISSUER_ID"
+gh_secret APPSTORE_API_KEY_ID             "$ASC_KEY_ID"
+gh_secret APP_STORE_CONNECT_API_KEY_ID    "$ASC_KEY_ID"
 
 if [[ -n "$ASC_PRIVATE_KEY" ]]; then
   gh_secret APPSTORE_API_PRIVATE_KEY         "$(cat "$ASC_PRIVATE_KEY")"
   gh_secret APP_STORE_CONNECT_API_KEY_BASE64 "$(base64 < "$ASC_PRIVATE_KEY")"
 else
   echo "⚠️   ASC private key not found — APPSTORE_API_PRIVATE_KEY / APP_STORE_CONNECT_API_KEY_BASE64 skipped"
-  echo "    Expected: $DIST_DIR/Apple/Key/AuthKey_${ASC_KEY_ID}.p8"
+  echo "    Expected: $DIST_DIR/Apple/_Keys/AuthKey_${ASC_KEY_ID}.p8"
 fi
 
 # ── 3. iOS provisioning profile ───────────────────────────────────────────────
@@ -307,6 +352,12 @@ else
       || echo "⚠️   Bitwarden item creation failed — save password manually: $ANDROID_KEYSTORE_PASSWORD"
   fi
 fi
+
+# Fail fast if the password/alias do not actually open the keystore — otherwise
+# Gradle only reports "keystore password was incorrect" minutes later in CI.
+keytool -list -keystore "$ANDROID_KEYSTORE" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1 \
+  || die "Keystore validation failed: password or alias '$ANDROID_KEY_ALIAS' do not match $ANDROID_KEYSTORE. The '${APP_NAME} Android Signing' values in Bitwarden are out of sync with this keystore file."
+ok "Keystore verified ($ANDROID_KEYSTORE, alias $ANDROID_KEY_ALIAS)"
 
 KEYSTORE_B64=$(base64 < "$ANDROID_KEYSTORE")
 

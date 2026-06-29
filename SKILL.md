@@ -6,10 +6,15 @@ Kompletní postup od nuly. Předpokládá existující Flutter projekt v `lioils
 
 ## Prerekvizity (jednou za developer account — už hotovo)
 
-- iOS Distribution Certificate (`distribution.p12`) → `Apple/distribution.p12` + Bitwarden
-- App Store Connect API Key (`AuthKey_5YH964A9M4.p8`) → `Apple/Key/`
+- iOS Distribution Certificate → **zdroj pravdy = Bitwarden poznámka `CI / IOS_P12_BASE64`**
+  (sdílená pro všechny appky). Soubor `Apple/_Keys/distribution.p12` je jen záloha a může
+  být stale — skript ho **nepoužívá**.
+- App Store Connect API Key (`AuthKey_5YH964A9M4.p8`) → `Apple/_Keys/`
 - Apple Team ID: `P82HWPG7FN`
 - ASC Issuer ID: `edeaacd0-9ce8-4fae-91b7-e451efabc799`
+- **OpenSSL 3** (`brew install openssl@3`) — skript ho potřebuje pro validaci p12.
+  Systémový `openssl` na macOS je **LibreSSL** a moderní (Keychain-exportované)
+  p12 neumí dešifrovat → hlásí "wrong password" i pro správné heslo. Viz Troubleshooting.
 
 ---
 
@@ -102,6 +107,19 @@ Pokud chybí `CODE_SIGN_IDENTITY = "Apple Distribution"` v Release → přidej:
 
 `CI_PROFILE_NAME` je placeholder — CI ho nahradí UUID profilu při každém buildu.
 
+> ⚠️ **Pozor — tenhle přístup rozbije lokální `flutter run` na zařízení.** Manuální
+> podpis + neexistující `CI_PROFILE_NAME` v Release sekci způsobí lokálně
+> `"Runner" requires a provisioning profile`. SwypeKids proto používá **alternativu**:
+> v projektu nech `CODE_SIGN_STYLE = Automatic` (lokál se podepíše sám automatic
+> signingem na tvůj team) a manuální podpis předej až v CI jako override
+> `xcodebuild archive` příkazu — odpadá i sed-inject krok:
+> ```bash
+> xcodebuild archive ... DEVELOPMENT_TEAM=$TEAM_ID \
+>   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" \
+>   PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME"
+> ```
+> (`align-project.sh` zatím generuje starý placeholder+sed přístup.)
+
 ---
 
 ## Krok 5 — Workflows (skripty, ~2 min)
@@ -134,13 +152,27 @@ export BW_SESSION=$(bw unlock --raw)
 ./scripts/setup-gh-secrets.sh --repo lioilsources/<AppName> --app <AppName>
 ```
 
-**Po skriptu:** okamžitě nastav Issuer ID ručně (Bitwarden položka je prázdná):
+Skript dnes:
+- **iOS p12 base64 bere ze sdílené Bitwarden poznámky** `CI / IOS_P12_BASE64`
+  (stejná hodnota pro všechny appky, ověřeně funguje v CI). **NEBER ho z volného
+  souboru** `Apple/_Keys/distribution.p12` — ten může být starý/jiný export, jehož
+  heslo už nesedí, a tiše rozbije podpis. (Pravidlo: zdroj pravdy je BW poznámka.)
+- **Validuje p12 přes OpenSSL 3** (`openssl pkcs12`) — keychain-free a spolehlivý.
+  ⚠️ **Nevaliduj přes `security import` do čerstvé klíčenky** — ta je zamčená, takže
+  selže i pro správné heslo (falešný negativ). OpenSSL 3 = `brew install openssl@3`,
+  systémový macOS `openssl` (LibreSSL) moderní p12 neumí.
+- **Keystore validuje přes `keytool -list`** (heslo + alias) ze souboru `.jks`.
+- **Issuer ID nastaví sám** (s hardcoded fallbackem), a to pod **oběma** názvy:
+  `APPSTORE_ISSUER_ID` i `APP_STORE_CONNECT_API_ISSUER_ID` — ruční krok už netřeba.
 
-```bash
-gh secret set APPSTORE_ISSUER_ID \
-  --repo lioilsources/<AppName> \
-  --body "edeaacd0-9ce8-4fae-91b7-e451efabc799"
-```
+> Když validace umře: u iOS nesedí pár `CI / IOS_P12_BASE64` + `CI / IOS_P12_PASSWORD`
+> v Bitwardenu (musí být ze stejného exportu certu). U Androidu nesedí
+> `<AppName> Android Signing` heslo na `.jks`. Oprav v BW, nebo (Android) přegeneruj
+> keystore — pozor: **nelze** pokud už appka je na Google Play (viz níže). Pak spusť znovu.
+>
+> **Pozn.:** Když appka padá v CI na `passphrase not correct`, ale jiné appky jedou,
+> jsou jen **stale GitHub secrety** té appky — stačí pustit tento skript, přepíše je
+> aktuální (správnou) hodnotou z BW.
 
 Commitni vygenerovaný Android keystore:
 
@@ -163,13 +195,14 @@ Musí existovat (minimálně):
 
 | Secret | Zdroj |
 |--------|-------|
-| `IOS_P12_BASE64` | Bitwarden (sdílený) |
-| `IOS_P12_PASSWORD` | Bitwarden (sdílený) |
+| `IOS_P12_BASE64` | Bitwarden poznámka `CI / IOS_P12_BASE64` (sdílený; **ne** soubor) |
+| `IOS_P12_PASSWORD` | Bitwarden `CI / IOS_P12_PASSWORD` — musí být ze stejného exportu jako base64 |
 | `IOS_KEYCHAIN_PASSWORD` | Bitwarden (sdílený) |
 | `IOS_PROVISION_PROFILE_BASE64` | `Apple/<AppName>/*.mobileprovision` |
-| `APPSTORE_ISSUER_ID` | **ručně** (`edeaacd0-9ce8-4fae-91b7-e451efabc799`) |
+| `APPSTORE_ISSUER_ID` | skript (`edeaacd0-9ce8-4fae-91b7-e451efabc799`) |
+| `APP_STORE_CONNECT_API_ISSUER_ID` | skript (stejná hodnota — workflow čte tento název) |
 | `APP_STORE_CONNECT_API_KEY_ID` | `5YH964A9M4` |
-| `APP_STORE_CONNECT_API_KEY_BASE64` | base64 z `Apple/Key/AuthKey_5YH964A9M4.p8` |
+| `APP_STORE_CONNECT_API_KEY_BASE64` | base64 z `Apple/_Keys/AuthKey_5YH964A9M4.p8` |
 | `ANDROID_KEYSTORE_BASE64` | `Android/<AppName>/upload-keystore.jks` |
 | `ANDROID_KEYSTORE_PASSWORD` | Bitwarden → `<AppName> Android Signing` |
 | `ANDROID_KEY_ALIAS` | `upload` |
@@ -237,15 +270,54 @@ Toto nastavení musí být POUZE v `project.pbxproj` pro Runner target.
 **Příznak:** `No signing certificate iOS Distribution found`  
 → `CODE_SIGN_IDENTITY = "Apple Distribution"` chybí v Release sekci `project.pbxproj`.
 
+### iOS — Import signing certificate selže
+
+**Příznak:** `security: SecKeychainItemImport: The user name or passphrase you entered is not correct.`
+→ Na GitHubu jsou **stale secrety** té appky — `IOS_P12_BASE64`/`IOS_P12_PASSWORD`
+byly nastavené dřív s jinou hodnotou. Fix: spusť `setup-gh-secrets.sh`, přepíše je
+aktuální (sdílenou) hodnotou z BW. Když jiné appky (MirrorBooth/Kiran) jedou, je to
+skoro jistě tohle — pár v BW je v pořádku.
+
+**Ověř pár v BW lokálně** (skript `diag-ios-p12.sh`, nebo ručně) — POZOR na dvě pasti:
+```bash
+# 1) Systémový openssl je LibreSSL → moderní p12 neumí, hlásí "invalid password" i pro správné heslo!
+#    Vždy použij OpenSSL 3:
+OSSL=$(brew --prefix openssl@3)/bin/openssl
+# 2) Heslo i base64 ber z BW (NE z volného souboru distribution.p12 — ten bývá stale):
+B64=$(bw get notes "CI / IOS_P12_BASE64"); PW=$(bw get password "CI / IOS_P12_PASSWORD")
+T=$(mktemp); printf '%s' "$B64" | base64 --decode > "$T"
+"$OSSL" pkcs12 -in "$T" -passin pass:"$PW" -noout && echo OK || echo BAD; rm -f "$T"
+# u starších p12 případně přidej -legacy
+```
+> ❌ **Nevaliduj přes `security import` do čerstvé klíčenky** — nově vytvořená klíčenka
+> je zamčená → import selže i pro správné heslo (falešný negativ). Buď OpenSSL 3, nebo
+> klíčenku po `create-keychain` ještě `unlock-keychain`.
+
+### Android — Build release AAB selže na podpisu
+
+**Příznak:** `Failed to read key ... from store ...: keystore password was incorrect`
+→ `ANDROID_KEYSTORE_PASSWORD` nesedí na `upload-keystore.jks` (typicky: keystore
+přegenerován, ale Bitwarden položka `<AppName> Android Signing` zůstala stará — nebo
+naopak). Skript to dnes chytí přes `keytool -list` ještě před pushnutím.
+
+**Ověř lokálně:**
+```bash
+keytool -list -keystore Android/<AppName>/upload-keystore.jks \
+  -storepass 'HESLO' -alias upload && echo OK || echo BAD
+```
+> ⚠️ Keystore **nepřegeneruj** pokud už je appka na Google Play (App Signing key musí
+> zůstat stejný). Pak je jediná správná cesta opravit heslo v Bitwardenu na to pravé.
+
 ### iOS — TestFlight upload selže
 
-**Příznak:** `Expected --api-issuer argument to have a value`  
-→ Secret `APPSTORE_ISSUER_ID` je špatný. Ověř délku (musí být 36):
+**Příznak:** `Expected --api-issuer argument to have a value`
+→ Issuer secret je prázdný/špatný. **Pozor na název:** workflow čte
+`APP_STORE_CONNECT_API_ISSUER_ID`, ale starší skript nastavoval jen `APPSTORE_ISSUER_ID`.
+Aktuální skript nastaví oba. Ověř, že existují oba a mají délku 36:
 ```bash
-# Přidej do workflow dočasně:
-echo "Issuer length: ${#CLEAN_ISSUER}"
+gh secret list --repo lioilsources/<AppName> | grep -i issuer
+gh secret set APP_STORE_CONNECT_API_ISSUER_ID --repo ... --body "edeaacd0-9ce8-4fae-91b7-e451efabc799"
 ```
-Nastav ručně: `gh secret set APPSTORE_ISSUER_ID --repo ... --body "edeaacd0-9ce8-4fae-91b7-e451efabc799"`
 
 ### Android — Firebase upload přeskočen
 
