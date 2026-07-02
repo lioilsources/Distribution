@@ -11,5 +11,10 @@ Apple/**/*.mobileprovision
 Android/**/*.jks
 Android/**/*.jks.pkcs12.bak
 
-# ── Firebase service account keys ─────────────────────────────────────────────
+# ── Firebase service account keys — NEVER commit (private_key inside) ─────────
 Android/Firebase/*.json
+Android/_GoogleConsole/**
+Android/**/_GoogleConsole/**
+
+# ── Firebase client config (per-app) — keep out of this public repo ───────────
+Android/**/google-services.json
