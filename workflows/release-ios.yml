@@ -68,28 +68,22 @@ jobs:
           DECODED=$(security cms -D -i "$PP_PATH")
           UUID=$(echo "$DECODED" | plutil -extract UUID raw -)
           PROFILE_NAME=$(echo "$DECODED" | plutil -extract Name raw -)
-          TEAM_ID=$(echo "$DECODED" | plutil -extract TeamIdentifier.0 raw -)
           BUNDLE_ID=$(echo "$DECODED" | plutil -extract Entitlements.application-identifier raw - | sed 's/^[^.]*\.//')
           EXPIRY=$(echo "$DECODED" | plutil -extract ExpirationDate raw -)
           PROFILE_TYPE=$(echo "$DECODED" | plutil -extract ProvisionsAllDevices raw - 2>/dev/null && echo "Enterprise" || (echo "$DECODED" | plutil -extract Entitlements.get-task-allow raw - 2>/dev/null | grep -q true && echo "Development" || echo "Distribution/AppStore"))
           echo "=== Provisioning profile info ==="
           echo "Profile name:      $PROFILE_NAME"
           echo "Profile UUID:      $UUID"
-          echo "Profile team ID:   $TEAM_ID"
           echo "Profile bundle ID: $BUNDLE_ID"
           echo "Profile expires:   $EXPIRY"
           echo "Profile type:      $PROFILE_TYPE"
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
           echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
           echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
-          echo "PROFILE_TEAM_ID=$TEAM_ID" >> $GITHUB_ENV
 
-      - name: Inject profile UUID into project
+      - name: Inject profile name into project
         run: |
-          sed -i '' \
-            -e "s/\"CI_PROFILE_NAME\"/\"$PROFILE_UUID\"/g" \
-            -e "s/CI_PROFILE_NAME/\"$PROFILE_UUID\"/g" \
-            tyrian_mobile/ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' "s/CI_PROFILE_NAME/\"$PROFILE_NAME\"/g" tyrian_mobile/ios/Runner.xcodeproj/project.pbxproj
           grep PROVISIONING_PROFILE_SPECIFIER tyrian_mobile/ios/Runner.xcodeproj/project.pbxproj
 
       - name: Build Flutter iOS (no codesign)
@@ -97,6 +91,8 @@ jobs:
         run: flutter build ios --release --no-codesign
 
       - name: Archive with manual signing
+        env:
+          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
         working-directory: tyrian_mobile
         run: |
           xcodebuild archive \
@@ -104,11 +100,13 @@ jobs:
             -scheme Runner \
             -configuration Release \
             -archivePath $RUNNER_TEMP/Runner.xcarchive \
-            DEVELOPMENT_TEAM=$PROFILE_TEAM_ID
+            DEVELOPMENT_TEAM=$TEAM_ID
 
       - name: Export IPA
+        env:
+          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
         run: |
-          /usr/libexec/PlistBuddy -c "Set :teamID $PROFILE_TEAM_ID" tyrian_mobile/ios/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Set :teamID $TEAM_ID" tyrian_mobile/ios/ExportOptions.plist
           /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:com.ol1n.kiran $PROFILE_NAME" tyrian_mobile/ios/ExportOptions.plist
           xcodebuild -exportArchive \
             -archivePath $RUNNER_TEMP/Runner.xcarchive \
@@ -118,19 +116,16 @@ jobs:
       - name: Upload to TestFlight
         env:
           API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          API_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
-          CLEAN_KEY_ID="$(printf '%s' "$API_KEY_ID" | tr -d '[:space:]')"
-          CLEAN_ISSUER="$(printf '%s' "$API_ISSUER_ID" | tr -d '[:space:]')"
-          echo "Key ID length: ${#CLEAN_KEY_ID}, Issuer ID length: ${#CLEAN_ISSUER}"
-          echo -n "$API_KEY_BASE64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${CLEAN_KEY_ID}.p8
+          echo -n "$API_KEY_BASE64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8
           xcrun altool --upload-app \
             --type ios \
             --file "$(ls $RUNNER_TEMP/ipa/*.ipa)" \
-            --apiKey "$CLEAN_KEY_ID" \
-            --apiIssuer "$CLEAN_ISSUER"
+            --apiKey "$API_KEY_ID" \
+            --apiIssuer "$API_ISSUER_ID"
 
       - name: Upload IPA to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')

@@ -143,11 +143,25 @@ Kiran a MirrorBooth mají navíc starší variantu `APP_STORE_CONNECT_API_ISSUER
 
 ---
 
-## Workflow šablona — kde je pravda
+## Workflow šablony — kde je pravda (GOLDEN)
 
-Šablona v `workflows/release-ios.yml` je **zdrojová šablona** pro `align-project.sh`.
-Po jakékoliv opravě v produkčním workflow (Kiran/MirrorBooth/DuolingoCards) je třeba
-aktualizovat i šablonu, jinak se příší appka bude nasazovat se starým, nefunkčním kódem.
+**`Distribution/workflows/` je jediný zdroj pravdy** (golden) pro `align-project.sh`.
+Skript z něj bere všech 6 šablon a instaluje je do cílové appky:
+- `ci.yml` + `release-ios.yml` + `release-android.yml` — vždy
+- `release-{macos,windows,linux}.yml` — jen pokud cílová appka má daný platform adresář
+
+Substituce (Python, bez regexů): `tyrian_mobile`→app-dir, `com.ol1n.kiran`→bundle,
+`Kiran`→app-name, a **`tyrian_mobile.app`→`<PRODUCT_NAME>.app`** (macOS produkt se čte
+z `macos/Runner/Configs/AppInfo.xcconfig`, proto se přejmenuje dřív než working-dir).
+
+⚠️ **Po jakékoliv opravě v produkčním workflow (Kiran = referenční) re-syncni golden:**
+```bash
+cp GitHub/Kiran/.github/workflows/{ci,release-android,release-ios,release-linux,release-macos,release-windows}.yml \
+   Distribution/workflows/
+```
+Jinak se příští appka nasadí se starým kódem. Ověř: `align-project.sh --target GitHub/Kiran
+--app-dir tyrian_mobile --app-name Kiran --bundle-id com.ol1n.kiran --repo lioilsources/Kiran --dry-run`
+musí hlásit „already aligned" u všech.
 
 ---
 

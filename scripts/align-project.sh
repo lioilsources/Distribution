@@ -49,6 +49,7 @@ SOURCE_DIR=""
 SOURCE_APP_DIR="tyrian_mobile"
 SOURCE_APP_NAME="Kiran"
 SOURCE_BUNDLE_ID="com.ol1n.kiran"
+SOURCE_MACOS_PRODUCT="tyrian_mobile"   # Kiran's macOS .app product name (PRODUCT_NAME)
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
@@ -74,29 +75,35 @@ done
 [[ -n "$REPO"       ]] || die "--repo is required  (e.g. lioilsources/MirrorBooth)"
 [[ -d "$TARGET_DIR" ]] || die "Target directory not found: $TARGET_DIR"
 
-# Auto-detect Kiran source
-if [[ -z "$SOURCE_DIR" ]]; then
-  for candidate in \
-    "${GITHUB_DIR}/Kiran" \
-    "$(dirname "$TARGET_DIR")/Kiran"; do
-    if [[ -d "${candidate}/.github/workflows" ]]; then
-      SOURCE_DIR="$candidate"
-      break
-    fi
-  done
-  [[ -n "$SOURCE_DIR" ]] || die "Could not auto-detect Kiran source. Pass --source /path/to/Kiran"
+# Source of truth: golden templates in Distribution/workflows (synced from the
+# proven Kiran repo). Override with --source <repo> to pull a live .github/workflows.
+GOLDEN_WF="$(cd "$SCRIPT_DIR/../workflows" 2>/dev/null && pwd)" || GOLDEN_WF=""
+if [[ -n "$SOURCE_DIR" ]]; then
+  [[ -d "$SOURCE_DIR/.github/workflows" ]] || die "Source workflows not found: $SOURCE_DIR/.github/workflows"
+  SOURCE_WF="$SOURCE_DIR/.github/workflows"
+else
+  [[ -n "$GOLDEN_WF" && -d "$GOLDEN_WF" ]] || die "Golden workflows not found: $SCRIPT_DIR/../workflows"
+  SOURCE_WF="$GOLDEN_WF"
 fi
-[[ -d "$SOURCE_DIR/.github/workflows" ]] || die "Source workflows not found: $SOURCE_DIR/.github/workflows"
 
-SOURCE_WF="$SOURCE_DIR/.github/workflows"
 TARGET_WF="$TARGET_DIR/.github/workflows"
 TARGET_PBXPROJ="$TARGET_DIR/$APP_DIR/ios/Runner.xcodeproj/project.pbxproj"
 TARGET_EXPORT_PLIST="$TARGET_DIR/$APP_DIR/ios/ExportOptions.plist"
 
-info "Source : $SOURCE_DIR  ($SOURCE_APP_NAME / $SOURCE_APP_DIR)"
+# macOS .app product name (used to rename the desktop release ZIP contents).
+# Detected from the target's AppInfo.xcconfig; falls back to the app name.
+MACOS_PRODUCT="$APP_NAME"
+_APPINFO="$TARGET_DIR/$APP_DIR/macos/Runner/Configs/AppInfo.xcconfig"
+if [[ -f "$_APPINFO" ]]; then
+  _PN="$(grep -E '^PRODUCT_NAME' "$_APPINFO" | sed 's/.*= *//' | tr -d '[:space:]')"
+  [[ -n "$_PN" ]] && MACOS_PRODUCT="$_PN"
+fi
+
+info "Source : $SOURCE_WF  (golden; $SOURCE_APP_NAME / $SOURCE_APP_DIR)"
 info "Target : $TARGET_DIR  ($APP_NAME / $APP_DIR)"
 info "Repo   : $REPO"
 info "Bundle : $BUNDLE_ID"
+info "macOS product : $MACOS_PRODUCT"
 $DRY_RUN && warn "(dry run — no files will be written)"
 echo ""
 
@@ -140,27 +147,21 @@ adapt_workflow() {
   python3 - "$src" \
       "$SOURCE_APP_DIR" "$APP_DIR" \
       "$SOURCE_APP_NAME" "$APP_NAME" \
-      "$SOURCE_BUNDLE_ID" "$BUNDLE_ID" << 'PYEOF'
+      "$SOURCE_BUNDLE_ID" "$BUNDLE_ID" \
+      "$SOURCE_MACOS_PRODUCT" "$MACOS_PRODUCT" << 'PYEOF'
 import sys
-src_path, src_dir, app_dir, src_name, app_name, src_bundle, app_bundle = sys.argv[1:]
+src_path, src_dir, app_dir, src_name, app_name, src_bundle, app_bundle, src_prod, app_prod = sys.argv[1:]
 
 with open(src_path) as f:
     content = f.read()
 
-# Literal substitutions — no regex, no escaping surprises
-content = content.replace(src_dir, app_dir)
-content = content.replace(src_bundle, app_bundle)
-
-# App name in release step names and Firebase notes
-for fragment in [
-    src_name + ' ${{ github.ref_name }}',
-    '"' + src_name + ' ${{ github.ref_name }}',
-    src_name + ' ${{ github.ref_name }} (build',
-]:
-    content = content.replace(fragment, fragment.replace(src_name, app_name, 1))
-
-# (historical: single-expression sed bug fix removed — template now has correct
-#  two-expression sed covering both quoted and unquoted CI_PROFILE_NAME forms)
+# Literal substitutions — no regex, no escaping surprises.
+# Order matters: the macOS .app product name embeds src_dir (e.g. "tyrian_mobile.app"),
+# so rename the product bundle BEFORE collapsing the working-directory token.
+content = content.replace(src_prod + '.app', app_prod + '.app')  # macOS product bundle
+content = content.replace(src_dir, app_dir)                       # working-directory / build paths
+content = content.replace(src_bundle, app_bundle)                 # bundle id (lowercase)
+content = content.replace(src_name, app_name)                     # app display name (release names, asset files, Firebase notes)
 
 sys.stdout.write(content)
 PYEOF
@@ -177,6 +178,30 @@ info "release-android.yml"
 ANDROID_SRC="$SOURCE_WF/release-android.yml"
 [[ -f "$ANDROID_SRC" ]] || die "Source not found: $ANDROID_SRC"
 write_or_diff "$TARGET_WF/release-android.yml" "$(adapt_workflow "$ANDROID_SRC")" "release-android.yml"
+
+# ── 2b. ci.yml ───────────────────────────────────────────────────────────────
+info "ci.yml"
+CI_SRC="$SOURCE_WF/ci.yml"
+if [[ -f "$CI_SRC" ]]; then
+  write_or_diff "$TARGET_WF/ci.yml" "$(adapt_workflow "$CI_SRC")" "ci.yml"
+else
+  warn "ci.yml not in source — skipped"
+fi
+
+# ── 2c. desktop release workflows (only for platforms present in the target) ──
+for _plat in macos windows linux; do
+  info "release-$_plat.yml"
+  if [[ -d "$TARGET_DIR/$APP_DIR/$_plat" ]]; then
+    _SRC="$SOURCE_WF/release-$_plat.yml"
+    if [[ -f "$_SRC" ]]; then
+      write_or_diff "$TARGET_WF/release-$_plat.yml" "$(adapt_workflow "$_SRC")" "release-$_plat.yml"
+    else
+      warn "release-$_plat.yml not in source — skipped"
+    fi
+  else
+    echo "    – release-$_plat.yml skipped (no $_plat/ in target)"
+  fi
+done
 
 # ── 3. ExportOptions.plist ───────────────────────────────────────────────────
 info "ExportOptions.plist"

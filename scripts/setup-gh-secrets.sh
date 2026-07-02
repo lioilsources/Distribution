@@ -313,8 +313,7 @@ else
 
   if [[ -z "$ANDROID_KEYSTORE_PASSWORD" ]]; then
     ANDROID_KEYSTORE_PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9!@#%^&*' < /dev/urandom | head -c 32 || true)
-    echo "🔑  Generated keystore password: $ANDROID_KEYSTORE_PASSWORD"
-    echo "    → Save in Bitwarden as '${APP_NAME} Android Signing' (field ANDROID_KEYSTORE_PASSWORD)"
+    echo "🔑  Generated keystore password (uloží se do Bitwardenu automaticky níže)"
   fi
 
   info "Generating $ANDROID_KEYSTORE ..."

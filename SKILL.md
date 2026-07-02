@@ -125,26 +125,28 @@ Potřebuješ `ios/ExportOptions.plist` (CI do něj jen doplní teamID a jméno p
 
 ---
 
-## Krok 5 — Workflows (skripty, ~2 min)
+## Krok 5 — Workflows (skript, ~1 min)
+
+Jediný příkaz nainstaluje **všechny** workflows z golden (`Distribution/workflows/`):
+`ci.yml` + `release-ios.yml` + `release-android.yml` vždy, a `release-{macos,windows,linux}.yml`
+jen pro platformy, jejichž adresář appka má. Zároveň vytvoří `ios/ExportOptions.plist`,
+dorovná iOS signing a nastaví `ITSAppUsesNonExemptEncryption=false`.
 
 ```bash
 cd /Users/ol1n/Dev/Distribution
 
-# Zkopíruj CI workflow (lint, testy)
-cp /Users/ol1n/Dev/GitHub/Kiran/.github/workflows/ci.yml \
-   /Users/ol1n/Dev/GitHub/<AppName>/.github/workflows/
-
-# Přizpůsob release workflows
-# --app-dir je "." pokud Flutter kód je v root (ne v subdirectory)
+# --app-dir je "." pokud je Flutter kód v root (ne v subdirectory)
 ./scripts/align-project.sh \
   --target /Users/ol1n/Dev/GitHub/<AppName> \
   --app-dir <app-dir> \
   --app-name <AppName> \
   --bundle-id com.ol1n.<bundleid> \
   --repo lioilsources/<AppName>
+# (nejdřív s --dry-run pro náhled)
 ```
 
-Výsledek: přepíše `.github/workflows/release-ios.yml` a `release-android.yml`.
+> Ruční `cp ci.yml` už netřeba — skript ho instaluje sám. Zdroj = golden
+> `Distribution/workflows/` (viz CLAUDE.md „Workflow šablony — GOLDEN").
 
 ---
 
