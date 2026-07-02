@@ -81,9 +81,15 @@ jobs:
           echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
           echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
 
-      - name: Inject profile name into project
+      - name: Inject profile UUID into project
         run: |
-          sed -i '' "s/CI_PROFILE_NAME/\"$PROFILE_NAME\"/g" tyrian_mobile/ios/Runner.xcodeproj/project.pbxproj
+          # Two expressions cover both quoted ("CI_PROFILE_NAME") and unquoted
+          # (CI_PROFILE_NAME) forms — a single-expression sed double-quotes the
+          # already-quoted placeholder and corrupts the pbxproj ("project damaged").
+          sed -i '' \
+            -e "s/\"CI_PROFILE_NAME\"/\"$PROFILE_UUID\"/g" \
+            -e "s/CI_PROFILE_NAME/\"$PROFILE_UUID\"/g" \
+            tyrian_mobile/ios/Runner.xcodeproj/project.pbxproj
           grep PROVISIONING_PROFILE_SPECIFIER tyrian_mobile/ios/Runner.xcodeproj/project.pbxproj
 
       - name: Build Flutter iOS (no codesign)
