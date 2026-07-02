@@ -243,16 +243,67 @@ info "Xcode project signing"
 if [[ ! -f "$TARGET_PBXPROJ" ]]; then
   warn "project.pbxproj not found — skipping: $TARGET_PBXPROJ"
 else
-  # Verify Release config (handle quoted and unquoted CI_PROFILE_NAME — flutter build can strip quotes)
+  # Verify (and auto-fix) the Runner Release config: Manual signing + CI_PROFILE_NAME
+  # placeholder (CI injects the real UUID). handle quoted/unquoted (flutter build can strip quotes).
   _RELEASE_OK=true
   grep -q 'CODE_SIGN_STYLE = Manual' "$TARGET_PBXPROJ"                                 || _RELEASE_OK=false
   grep -qE 'PROVISIONING_PROFILE_SPECIFIER = "?CI_PROFILE_NAME"?;' "$TARGET_PBXPROJ"  || _RELEASE_OK=false
   if $_RELEASE_OK; then
     echo "    ✓ Release config — Manual + CI_PROFILE_NAME placeholder"
+  elif $DRY_RUN; then
+    warn "Release config not Manual+CI_PROFILE_NAME (dry run — would auto-fix)"
   else
-    warn "Release config missing Manual signing or CI_PROFILE_NAME placeholder"
-    echo "    Fix in Xcode: Runner target → Signing & Capabilities → Release → Manual signing"
-    echo "    Then add PROVISIONING_PROFILE_SPECIFIER = \"CI_PROFILE_NAME\" to project.pbxproj"
+    warn "Release config not Manual+CI_PROFILE_NAME — auto-fixing..."
+    # Extract the team already used elsewhere in the project (shared dev account).
+    DEV_TEAM="$(grep -m1 -E 'DEVELOPMENT_TEAM = ' "$TARGET_PBXPROJ" | sed -E 's/.*= *//; s/;.*//' | tr -d '[:space:]')"
+    python3 - "$TARGET_PBXPROJ" "$BUNDLE_ID" "$DEV_TEAM" << 'PYEOF'
+import re, sys
+pbxproj_path, bundle_id, dev_team = sys.argv[1:]
+with open(pbxproj_path) as f:
+    content = f.read()
+
+WANT = ['CODE_SIGN_IDENTITY = "Apple Distribution";',
+        'CODE_SIGN_STYLE = Manual;',
+        'PROVISIONING_PROFILE_SPECIFIER = "CI_PROFILE_NAME";']
+if dev_team:
+    WANT.insert(2, f'DEVELOPMENT_TEAM = {dev_team};')
+
+def fix_release(b):
+    if f'PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};' not in b:
+        return b  # only the Runner target (skip RunnerTests / project-level)
+    # Drop the SDK-qualified Development identity the Flutter template ships with.
+    b = re.sub(r'\n[ \t]*"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]" = [^;]*;', '', b)
+    has_style = 'CODE_SIGN_STYLE' in b
+    if has_style:
+        # Block already carries signing keys — rewrite the values in place.
+        b = re.sub(r'(\n[ \t]*)CODE_SIGN_IDENTITY = [^;]*;', r'\1CODE_SIGN_IDENTITY = "Apple Distribution";', b, count=1)
+        b = re.sub(r'CODE_SIGN_STYLE = \w+;', 'CODE_SIGN_STYLE = Manual;', b, count=1)
+        if re.search(r'PROVISIONING_PROFILE_SPECIFIER = [^;]*;', b):
+            b = re.sub(r'PROVISIONING_PROFILE_SPECIFIER = [^;]*;', 'PROVISIONING_PROFILE_SPECIFIER = "CI_PROFILE_NAME";', b, count=1)
+        else:
+            b = b.replace('\t\t\t\tCODE_SIGN_STYLE = Manual;',
+                          '\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "CI_PROFILE_NAME";', 1)
+        if 'CODE_SIGN_IDENTITY = "Apple Distribution";' not in b:
+            b = b.replace('\t\t\t\tCODE_SIGN_STYLE = Manual;',
+                          '\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tCODE_SIGN_STYLE = Manual;', 1)
+    else:
+        # No signing keys at all — inject the missing ones after PRODUCT_BUNDLE_IDENTIFIER.
+        # Skip any key already present in the block (e.g. DEVELOPMENT_TEAM) to avoid dupes.
+        missing = [k for k in WANT if k.split(' = ', 1)[0] not in b]
+        inject = ''.join('\t\t\t\t' + k + '\n' for k in missing)
+        b = b.replace(f'\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = {bundle_id};\n',
+                      f'\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = {bundle_id};\n' + inject, 1)
+    return b
+
+pattern = re.compile(r'(\t\t[A-Fa-f0-9]{24} /\* Release \*/ = \{.*?\t\t\tname = Release;\n\t\t\};)', re.DOTALL)
+new_content = pattern.sub(lambda m: fix_release(m.group(0)), content)
+if new_content != content:
+    with open(pbxproj_path, 'w') as f:
+        f.write(new_content)
+    print('    ✅ Release config → Apple Distribution + Manual + CI_PROFILE_NAME')
+else:
+    print('    ⚠️  Could not auto-fix Release config — edit Runner Release manually')
+PYEOF
   fi
 
   # Verify (and auto-fix) CODE_SIGN_IDENTITY = "Apple Distribution" in Release config.
