@@ -31,6 +31,7 @@ Distribution/
 | DuolingoCards | lioilsources/DuolingoCards | `.` | `DuolingoCards` | `com.ol1n.duolingoCards` |
 | SwypeKids | lioilsources/SwypeKids | `.` | `SwypeKids` | `com.ol1n.swypeKids` |
 | DoodlebugsRevival | lioilsources/doodlebugs-revival | `.` | `DoodlebugsRevival` | `com.ol1n.doodlebugsRevival` |
+| MangaPrompts | lioilsources/MangaPrompts | `.` | `MangaPrompts` | `com.ol1n.MangaPrompts` |
 
 ---
 
