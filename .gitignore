@@ -18,3 +18,10 @@ Android/**/_GoogleConsole/**
 
 # ── Firebase client config (per-app) — keep out of this public repo ───────────
 Android/**/google-services.json
+
+# ── Unity licensing — NEVER commit ────────────────────────────────────────────
+# *.alf is a license *request*: one-shot, machine-bound, and it carries the
+# Mac's serial number and hardware UUID. *.ulf is the license itself — that
+# belongs in Bitwarden and reaches CI as the UNITY_LICENSE secret.
+*.alf
+*.ulf
