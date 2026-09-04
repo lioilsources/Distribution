@@ -217,3 +217,4 @@ git -C /Users/ol1n/Dev/GitHub/<AppName> push origin v0.1.0-alpha
 | PoetryStream | `poetry_stream` | `PoetryStream` | `com.ol1n.poetrystream` |
 | DuolingoCards | `.` | `DuolingoCards` | `com.ol1n.duolingoCards` |
 | SwypeKids | `.` | `SwypeKids` | `com.ol1n.swypeKids` |
+| Puff | `.` | `Puff` | `com.ol1n.puff` |
