@@ -39,7 +39,10 @@ jobs:
 
       - name: Install CocoaPods dependencies
         working-directory: tyrian_mobile/ios
-        run: pod install
+        run: |
+          # An app without iOS plugins has no Podfile (Flutter only writes one
+          # when a plugin needs CocoaPods) — pod install would fail on it.
+          if [ -f Podfile ]; then pod install; else echo "No Podfile (no iOS plugins) — skipping"; fi
 
       - name: Import signing certificate
         env:
