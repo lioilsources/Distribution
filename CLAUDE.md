@@ -33,6 +33,8 @@ Distribution/
 | DoodlebugsRevival | lioilsources/doodlebugs-revival | `.` | `DoodlebugsRevival` | `com.ol1n.doodlebugsRevival` |
 | MangaPrompts | lioilsources/MangaPrompts | `.` | `MangaPrompts` | `com.ol1n.MangaPrompts` |
 | BioDefenseRogue | lioilsources/BioDefenseRogue | `immunorun` | `BioDefenseRogue` | `com.ol1n.bioDefenseRogue` |
+| AudioScanner | lioilsources/AudioScanner | `.` | `AudioScanner` | `com.ol1n.audioScanner` |
+| Skatepark | lioilsources/ChrestysSkatepark | `rattleramp` | `Skatepark` | `com.ol1n.chrestysSkatepark` |
 
 ---
 
