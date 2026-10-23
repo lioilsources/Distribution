@@ -232,6 +232,13 @@ git tag v0.1.0-alpha
 git push origin v0.1.0-alpha
 ```
 
+> **Tag je verze.** `release-ios.yml` a `release-android.yml` berou verzi z tagu:
+> `v1.2.3` i `v1.2.3-beta` → `1.2.3`, build number = číslo běhu workflow. Verze
+> v `pubspec.yaml` platí jen pro ruční spuštění bez tagu. Dřív se brala jen
+> z `pubspec.yaml`, takže každý tag vyšel pod stejnou verzí, dokud ji někdo ručně
+> nezvedl. Pozor na App Store Connect: verze nesmí být nižší než ta, která už tam
+> je – když první buildy odešly jako 1.0.0, pokračuj `v1.0.1`, ne `v0.1.x`.
+
 ---
 
 ## Krok 9 — Sledování CI
