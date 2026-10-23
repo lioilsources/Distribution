@@ -176,7 +176,7 @@ if [[ -z "$ASC_PRIVATE_KEY" ]]; then
   KEY_MATCHES=( $KEY_GLOB )
   if [[ -f "${KEY_MATCHES[0]}" ]]; then
     ASC_PRIVATE_KEY="${KEY_MATCHES[0]}"
-    info "Auto-discovered ASC private key: $ASC_PRIVATE_KEY"
+    ASC_PRIVATE_KEY_AUTO=1   # re-resolved by key id once Bitwarden is read (section 2)
   fi
 fi
 
@@ -242,6 +242,19 @@ fi
 
 ASC_KEY_ID=$(bw_password "CI / ASC_API_KEY_ID")
 [[ -n "$ASC_KEY_ID" ]] || die "Could not read CI / ASC_API_KEY_ID from Bitwarden"
+
+# Apple/_Keys holds more than one AuthKey_*.p8 (e.g. a reviews-only key), so the
+# first glob match can be a key that does not belong to ASC_KEY_ID — altool then
+# fails to authenticate. Pick the file named after the key id, or skip.
+if [[ -n "${ASC_PRIVATE_KEY_AUTO:-}" ]]; then
+  KEY_MATCHES=( "$DIST_DIR/Apple/_Keys/AuthKey_${ASC_KEY_ID}"*.p8 )
+  if [[ -f "${KEY_MATCHES[0]}" ]]; then
+    ASC_PRIVATE_KEY="${KEY_MATCHES[0]}"
+    info "Auto-discovered ASC private key: $ASC_PRIVATE_KEY"
+  else
+    ASC_PRIVATE_KEY=""
+  fi
+fi
 
 # Set both naming variants: old names for backwards compat, new names expected by workflow templates
 gh_secret APPSTORE_ISSUER_ID              "$ASC_ISSUER_ID"
