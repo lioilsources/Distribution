@@ -270,6 +270,25 @@ else
   echo "    Expected: $DIST_DIR/Apple/_Keys/AuthKey_${ASC_KEY_ID}.p8"
 fi
 
+# Preflight: přesně tyhle hodnoty musí projít ASC API a appka musí v ASC existovat.
+# Jinak to CI zjistí až po ~10 min buildu, a to matoucí hláškou altoolu
+# "Cannot determine the Apple ID from Bundle ID" (Papanek, 2026-11-05).
+if [[ -n "$ASC_PRIVATE_KEY" ]]; then
+  info "Checking App Store Connect (key + app record for $BUNDLE_ID)..."
+  set +e
+  python3 -I "$SCRIPT_DIR/asc-check.py" --key "$ASC_PRIVATE_KEY" --key-id "$ASC_KEY_ID" \
+    --issuer "$ASC_ISSUER_ID" --bundle-id "$BUNDLE_ID"
+  _ASC_RC=$?
+  set -e
+  case $_ASC_RC in
+    0) ;;
+    2) die "ASC API klíč neprošel — APP_STORE_CONNECT_API_* secrets by v CI nefungovaly." ;;
+    3) echo "⚠️   Secrets jsou nastavené, ale TestFlight upload selže, dokud appku v ASC nezaložíš"
+       echo "    (nebo předej správné --bundle-id; výchozí je com.ol1n.<AppName> a rozlišuje velikost písmen)." ;;
+    *) echo "⚠️   Kontrolu ASC se nepodařilo dokončit (kód $_ASC_RC) — ověř ručně." ;;
+  esac
+fi
+
 # ── 3. iOS provisioning profile ───────────────────────────────────────────────
 echo ""
 info "iOS provisioning profile..."

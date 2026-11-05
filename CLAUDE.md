@@ -179,5 +179,6 @@ musí hlásit „already aligned" u všech.
 | `No signing certificate iOS Distribution found` | Špatný `DEVELOPMENT_TEAM` nebo chybí `CODE_SIGN_IDENTITY` v Release config | Čerpat TEAM_ID z profilu; přidat `CODE_SIGN_IDENTITY` do pbxproj |
 | `does not match the selected team` | `IOS_TEAM_ID` secret je prázdný nebo špatný | Čerpat TEAM_ID z mobileprovision přímo |
 | `Expected --api-issuer argument to have a value` | `APPSTORE_ISSUER_ID` secret je garbage (Bitwarden prázdný) | Nastavit ručně: `edeaacd0-9ce8-4fae-91b7-e451efabc799` |
+| `Cannot determine the Apple ID from Bundle ID 'X'` | Appka s bundle ID X v ASC není (jiný tým, velikost písmen), nebo `APP_STORE_CONNECT_API_*` secrets k sobě nepatří | `scripts/asc-check.py` (spouští ho i `setup-gh-secrets.sh`): exit 3 = založit appku v ASC, exit 2 = opravit secrets |
 | Firebase upload přeskočen (skipped) | GitHub Release krok selhal s `already_exists` | `continue-on-error: true` na Release kroku |
 | `Run Release iOS has already completed` | `gh run watch` zachytil starý run | Zkontrolovat ID nového runu: `gh run list --limit 3` |

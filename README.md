@@ -143,6 +143,10 @@ Pořadí kroků je důležité — provisioning profile musí existovat **před*
 - [ ] [appstoreconnect.apple.com](https://appstoreconnect.apple.com) → My Apps → `+` → New App
 - [ ] Platform: iOS, Bundle ID z dropdownu (musí existovat z kroku 1), SKU: např. `ol1nmojeapp`
 - [ ] Ikona: App Information → App Icon (1024×1024 px, bez alfa kanálu, PNG)
+- [ ] Ověř: `setup-gh-secrets.sh` na konci ASC sekce spustí `scripts/asc-check.py`. Musí vypsat
+      „klíč funguje, appka … existuje“; jinak TestFlight upload v CI selže až po buildu
+      hláškou `Cannot determine the Apple ID from Bundle ID`. Bundle ID rozlišuje velikost písmen,
+      výchozí `com.ol1n.<AppName>` nemusí sedět → předej `--bundle-id`.
 
 ### Krok 3 — Google Play Console (manuálně)
 
