@@ -9,6 +9,8 @@ Exit 0 = klíč funguje a appka v App Store Connect existuje.
 Exit 2 = klíč/issuer neprojde (HTTP 401/403) -> špatné APP_STORE_CONNECT_API_* secrets.
 Exit 3 = appka s tímto bundle ID v ASC není -> altool pak hlásí
          "Cannot determine the Apple ID from Bundle ID" (My Apps -> + -> New App).
+Exit 4 = appka existuje, ale ne pro --platform (výchozí IOS); altool hlásí totéž.
+         Papanek 2026-11-05: appka založená jen pro macOS -> Add Platform -> iOS.
 """
 import argparse, base64, json, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 
@@ -44,9 +46,11 @@ def main() -> int:
     ap.add_argument("--key-id", required=True)
     ap.add_argument("--issuer", required=True)
     ap.add_argument("--bundle-id", required=True)
+    ap.add_argument("--platform", default="IOS", help="IOS | MAC_OS | TV_OS | VISION_OS")
     a = ap.parse_args()
 
-    q = urllib.parse.urlencode({"filter[bundleId]": a.bundle_id, "fields[apps]": "name,bundleId"})
+    q = urllib.parse.urlencode({"filter[bundleId]": a.bundle_id, "fields[apps]": "name,bundleId,appStoreVersions",
+                                "include": "appStoreVersions", "fields[appStoreVersions]": "platform"})
     req = urllib.request.Request(f"https://api.appstoreconnect.apple.com/v1/apps?{q}",
                                  headers={"Authorization": "Bearer " + token(a.key, a.key_id, a.issuer)})
     try:
@@ -57,7 +61,6 @@ def main() -> int:
             return 2
         print(f"❌  ASC API: HTTP {e.code}", file=sys.stderr)
         return 1
-    # filter[bundleId] je prefixový; chceme přesnou shodu (pozor na velká písmena).
     apps = [x for x in data.get("data", []) if x["attributes"]["bundleId"] == a.bundle_id]
     if not apps:
         # Filtr API je přesný; častá chyba je jen velikost písmen (com.ol1n.Papanek vs papanek).
@@ -72,7 +75,15 @@ def main() -> int:
               f"    Založ ji: appstoreconnect.apple.com → My Apps → + → New App. Bez ní TestFlight upload\n"
               f"    selže hláškou 'Cannot determine the Apple ID from Bundle ID'.", file=sys.stderr)
         return 3
-    print(f"✅  ASC: klíč funguje, appka '{apps[0]['attributes']['name']}' ({a.bundle_id}) existuje")
+    name = apps[0]["attributes"]["name"]
+    platforms = sorted({x["attributes"]["platform"] for x in data.get("included", [])
+                        if x.get("type") == "appStoreVersions"})
+    if a.platform not in platforms:
+        print(f"❌  Appka '{name}' ({a.bundle_id}) v ASC existuje, ale jen pro: {', '.join(platforms) or 'žádnou platformu'}.\n"
+              f"    Chybí {a.platform}: v ASC otevři appku → Add Platform. Jinak upload selže hláškou\n"
+              f"    'Cannot determine the Apple ID from Bundle ID'.", file=sys.stderr)
+        return 4
+    print(f"✅  ASC: klíč funguje, appka '{name}' ({a.bundle_id}) existuje pro {a.platform}")
     return 0
 
 

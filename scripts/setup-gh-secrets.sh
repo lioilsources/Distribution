@@ -285,6 +285,7 @@ if [[ -n "$ASC_PRIVATE_KEY" ]]; then
     2) die "ASC API klíč neprošel — APP_STORE_CONNECT_API_* secrets by v CI nefungovaly." ;;
     3) echo "⚠️   Secrets jsou nastavené, ale TestFlight upload selže, dokud appku v ASC nezaložíš"
        echo "    (nebo předej správné --bundle-id; výchozí je com.ol1n.<AppName> a rozlišuje velikost písmen)." ;;
+    4) echo "⚠️   Appka v ASC nemá platformu iOS — TestFlight upload selže, dokud ji nepřidáš (Add Platform → iOS)." ;;
     *) echo "⚠️   Kontrolu ASC se nepodařilo dokončit (kód $_ASC_RC) — ověř ručně." ;;
   esac
 fi
