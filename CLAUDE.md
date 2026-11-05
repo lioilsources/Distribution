@@ -158,6 +158,10 @@ Substituce (Python, bez regexů): `tyrian_mobile`→app-dir, `com.ol1n.kiran`→
 `Kiran`→app-name, a **`tyrian_mobile.app`→`<PRODUCT_NAME>.app`** (macOS produkt se čte
 z `macos/Runner/Configs/AppInfo.xcconfig`, proto se přejmenuje dřív než working-dir).
 
+**Ručně psané workflow** (bez `align-project.sh`) před prvním tagem porovnej s golden:
+bundle id `com.ol1n.<app>` (stejné jako Android appka ve Firebase), `groups: Alfa` a appka
+v ASC pro iOS (`scripts/asc-check.py`). Běhánek 2026-11-05 minul všechny tři.
+
 ⚠️ **Po jakékoliv opravě v produkčním workflow (Kiran = referenční) re-syncni golden:**
 ```bash
 cp GitHub/Kiran/.github/workflows/{ci,release-android,release-ios,release-linux,release-macos,release-windows}.yml \
@@ -180,5 +184,6 @@ musí hlásit „already aligned" u všech.
 | `does not match the selected team` | `IOS_TEAM_ID` secret je prázdný nebo špatný | Čerpat TEAM_ID z mobileprovision přímo |
 | `Expected --api-issuer argument to have a value` | `APPSTORE_ISSUER_ID` secret je garbage (Bitwarden prázdný) | Nastavit ručně: `edeaacd0-9ce8-4fae-91b7-e451efabc799` |
 | `Cannot determine the Apple ID from Bundle ID 'X'` | Appka s bundle ID X v ASC není (jiný tým, velikost písmen), **je založená jen pro jinou platformu** (Papanek: jen macOS), nebo `APP_STORE_CONNECT_API_*` secrets k sobě nepatří | `scripts/asc-check.py` (spouští ho i `setup-gh-secrets.sh`): exit 3 = založit appku, exit 4 = Add Platform → iOS, exit 2 = opravit secrets |
+| Firebase `404 Requested entity was not found` při rozesílání | Skupina v `groups:` neexistuje (Běhánek měl `testeri`) | `groups: Alfa` jako v golden šabloně |
 | Firebase upload přeskočen (skipped) | GitHub Release krok selhal s `already_exists` | `continue-on-error: true` na Release kroku |
 | `Run Release iOS has already completed` | `gh run watch` zachytil starý run | Zkontrolovat ID nového runu: `gh run list --limit 3` |

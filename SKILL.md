@@ -362,6 +362,11 @@ gh secret set APP_STORE_CONNECT_API_ISSUER_ID --repo ... --body "edeaacd0-9ce8-4
 2. **Skupina v `groups:` neexistuje** nebo má jiný **alias** (case-sensitive, ne
    zobrazované jméno). Firebase Console → App Distribution → Testers & groups.
 
+**Příznak:** `failed to distribute to testers/groups: HTTP Error: 404, Requested entity was not found.`
+→ APK se nahrálo, ale skupina z `groups:` v projektu neexistuje. Všechny appky rozesílají
+skupině **`Alfa`** (golden šablona). Ručně psané workflow (Běhánek 2026-11-05: `testeri`)
+tohle snadno minou. Oprav `groups: Alfa` a pusť znovu jen spadlý job.
+
 **Příznak:** `HTTP Error: 403, The caller does not have permission`
 → V `FIREBASE_SERVICE_ACCOUNT_KEY` je **špatný service account** — typicky Google
 Play SA (`google-play-publisher@…`) místo Firebase (`firebase-adminsdk-…`). Play SA
