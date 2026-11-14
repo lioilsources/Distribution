@@ -62,11 +62,11 @@ jobs:
 
       - name: Build release AAB
         working-directory: tyrian_mobile
-        run: flutter build appbundle --release
+        run: flutter build appbundle --release --dart-define=TELEMETRY_KEY=${{ secrets.TELEMETRY_KEY }} --dart-define=TELEMETRY_HOST=${{ secrets.TELEMETRY_HOST }}
 
       - name: Build release APK
         working-directory: tyrian_mobile
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=TELEMETRY_KEY=${{ secrets.TELEMETRY_KEY }} --dart-define=TELEMETRY_HOST=${{ secrets.TELEMETRY_HOST }}
 
       - name: Verify APK signing certificate
         run: |

@@ -30,7 +30,7 @@ jobs:
 
       - name: Build macOS (debug)
         working-directory: tyrian_mobile
-        run: flutter build macos --debug
+        run: flutter build macos --debug --dart-define=TELEMETRY_KEY=${{ secrets.TELEMETRY_KEY }} --dart-define=TELEMETRY_HOST=${{ secrets.TELEMETRY_HOST }}
 
       - name: Package as ZIP
         run: |
