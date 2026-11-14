@@ -126,6 +126,12 @@ Po spuštění skript nastaví těchto 12 secrets:
 | `ANDROID_KEY_ALIAS` | `upload` (default) |
 | `ANDROID_KEY_PASSWORD` | shodné s `ANDROID_KEYSTORE_PASSWORD` |
 
+`TELEMETRY_KEY` a `TELEMETRY_HOST` (anonymní měření, balíček `ol1n_telemetry`)
+skript **nenastavuje**. Release šablony je předávají každému `flutter build`
+přes `--dart-define`; prázdné tajemství = tichý build bez měření. Nastavují se
+ručně až po zveřejnění nové politiky soukromí appky, viz oddíl
+„Workflow šablony a měření“ v `CLAUDE.md`.
+
 ---
 
 ## HOW-TO: Nová appka (checklist)

@@ -168,6 +168,22 @@ Jinak se příští appka nasadí se starým kódem. Ověř: `align-project.sh -
 --app-dir tyrian_mobile --app-name Kiran --bundle-id com.ol1n.kiran --repo lioilsources/Kiran --dry-run`
 musí hlásit „already aligned" u všech.
 
+### Workflow šablony a měření (`TELEMETRY_KEY`, `TELEMETRY_HOST`)
+
+Každý `flutter build` v `release-*.yml` (obchody, Firebase, GitHub Release)
+dostává `--dart-define=TELEMETRY_KEY=${{ secrets.TELEMETRY_KEY }}
+--dart-define=TELEMETRY_HOST=${{ secrets.TELEMETRY_HOST }}`. `ci.yml` je
+nedostává (CI build nikam nejde).
+
+- Prázdné nebo nenastavené tajemství = prázdný řetězec = tichý build: balíček
+  `ol1n_telemetry` bez klíče nic nezaznamená, nic nepošle a vypínač v nastavení
+  se nezobrazí. Appka bez balíčku define ignoruje.
+- Tajemství **nenastavuj** a `setup-gh-secrets.sh` je nenastavuje. Pořadí:
+  politika soukromí → formuláře v obchodech → klíč → vydání. Klíč se do repa
+  dává rourou do `gh secret set`, nikdy do chatu ani do logu.
+- Hodnoty do tohoto repa nepatří (je veřejné).
+- Vlastní build kroky appky (Steam, tester APK) přidávají totéž ručně.
+
 ---
 
 ## Časté chyby a jejich příznaky

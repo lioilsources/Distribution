@@ -33,7 +33,7 @@ jobs:
 
       - name: Build Windows (debug)
         working-directory: tyrian_mobile
-        run: flutter build windows --debug
+        run: flutter build windows --debug --dart-define=TELEMETRY_KEY=${{ secrets.TELEMETRY_KEY }} --dart-define=TELEMETRY_HOST=${{ secrets.TELEMETRY_HOST }}
 
       - name: Package as ZIP
         shell: pwsh
