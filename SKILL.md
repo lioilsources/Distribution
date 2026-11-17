@@ -6,12 +6,13 @@ Kompletní postup od nuly. Předpokládá existující Flutter projekt v `lioils
 
 ## Prerekvizity (jednou za developer account — už hotovo)
 
-- iOS Distribution Certificate → **zdroj pravdy = Bitwarden poznámka `CI / IOS_P12_BASE64`**
+- iOS Distribution Certificate → **zdroj pravdy = sdílená Bitwarden poznámka s base64 p12**
+  (názvy BW položek viz `scripts/setup-gh-secrets.sh`)
   (sdílená pro všechny appky). Soubor `Apple/_Keys/distribution.p12` je jen záloha a může
   být stale — skript ho **nepoužívá**.
-- App Store Connect API Key (`AuthKey_5YH964A9M4.p8`) → `Apple/_Keys/`
-- Apple Team ID: `P82HWPG7FN`
-- ASC Issuer ID: `edeaacd0-9ce8-4fae-91b7-e451efabc799`
+- App Store Connect API Key (`AuthKey_$ASC_KEY_ID.p8`) → `Apple/_Keys/`
+- Apple Team ID: `$APPLE_TEAM_ID`, ASC Issuer ID: `$ASC_ISSUER_ID`, ASC Key ID: `$ASC_KEY_ID`
+  (hodnoty v Bitwardenu a v `.env`, vzor `.env.example`)
 - **OpenSSL 3** (`brew install openssl@3`) — skript ho potřebuje pro validaci p12.
   Systémový `openssl` na macOS je **LibreSSL** a moderní (Keychain-exportované)
   p12 neumí dešifrovat → hlásí "wrong password" i pro správné heslo. Viz Troubleshooting.
@@ -93,7 +94,7 @@ Runner target v Release má jen **automatic** signing — aby šel lokální `fl
 
 ```
 CODE_SIGN_STYLE = Automatic;
-DEVELOPMENT_TEAM = P82HWPG7FN;
+DEVELOPMENT_TEAM = <APPLE_TEAM_ID>;
 ```
 
 > ❌ **Nedávej do projektu manuální podpis** (`CODE_SIGN_STYLE = Manual` +
@@ -113,7 +114,7 @@ Potřebuješ `ios/ExportOptions.plist` (CI do něj jen doplní teamID a jméno p
 
 ```xml
 <key>method</key><string>app-store</string>
-<key>teamID</key><string>P82HWPG7FN</string>
+<key>teamID</key><string><APPLE_TEAM_ID></string>
 <key>signingStyle</key><string>manual</string>
 <key>provisioningProfiles</key>
 <dict><key>com.ol1n.<appname></key><string><jméno profilu></string></dict>
@@ -133,11 +134,11 @@ jen pro platformy, jejichž adresář appka má. Zároveň vytvoří `ios/Export
 dorovná iOS signing a nastaví `ITSAppUsesNonExemptEncryption=false`.
 
 ```bash
-cd /Users/ol1n/Dev/Distribution
+cd $DEV_ROOT/Distribution
 
 # --app-dir je "." pokud je Flutter kód v root (ne v subdirectory)
 ./scripts/align-project.sh \
-  --target /Users/ol1n/Dev/GitHub/<AppName> \
+  --target $DEV_ROOT/<AppName> \
   --app-dir <app-dir> \
   --app-name <AppName> \
   --bundle-id com.ol1n.<bundleid> \
@@ -158,7 +159,7 @@ export BW_SESSION=$(bw unlock --raw)
 ```
 
 Skript dnes:
-- **iOS p12 base64 bere ze sdílené Bitwarden poznámky** `CI / IOS_P12_BASE64`
+- **iOS p12 base64 bere ze sdílené Bitwarden poznámky** (zdroj secretu `IOS_P12_BASE64`)
   (stejná hodnota pro všechny appky, ověřeně funguje v CI). **NEBER ho z volného
   souboru** `Apple/_Keys/distribution.p12` — ten může být starý/jiný export, jehož
   heslo už nesedí, a tiše rozbije podpis. (Pravidlo: zdroj pravdy je BW poznámka.)
@@ -170,7 +171,7 @@ Skript dnes:
 - **Issuer ID nastaví sám** (s hardcoded fallbackem), a to pod **oběma** názvy:
   `APPSTORE_ISSUER_ID` i `APP_STORE_CONNECT_API_ISSUER_ID` — ruční krok už netřeba.
 
-> Když validace umře: u iOS nesedí pár `CI / IOS_P12_BASE64` + `CI / IOS_P12_PASSWORD`
+> Když validace umře: u iOS nesedí pár BW položek pro `IOS_P12_BASE64` + `IOS_P12_PASSWORD`
 > v Bitwardenu (musí být ze stejného exportu certu). U Androidu nesedí
 > `<AppName> Android Signing` heslo na `.jks`. Oprav v BW, nebo (Android) přegeneruj
 > keystore — pozor: **nelze** pokud už appka je na Google Play (viz níže). Pak spusť znovu.
@@ -182,8 +183,8 @@ Skript dnes:
 Commitni vygenerovaný Android keystore:
 
 ```bash
-git -C /Users/ol1n/Dev/Distribution add Android/<AppName>/
-git -C /Users/ol1n/Dev/Distribution commit -m "Add Android keystore for <AppName>"
+git -C $DEV_ROOT/Distribution add Android/<AppName>/
+git -C $DEV_ROOT/Distribution commit -m "Add Android keystore for <AppName>"
 ```
 
 > ⚠️ **Keystore nikdy nesmaž** — Google Play ho vyžaduje pro všechny budoucí updaty.
@@ -200,14 +201,14 @@ Musí existovat (minimálně):
 
 | Secret | Zdroj |
 |--------|-------|
-| `IOS_P12_BASE64` | Bitwarden poznámka `CI / IOS_P12_BASE64` (sdílený; **ne** soubor) |
-| `IOS_P12_PASSWORD` | Bitwarden `CI / IOS_P12_PASSWORD` — musí být ze stejného exportu jako base64 |
+| `IOS_P12_BASE64` | sdílená Bitwarden poznámka (**ne** soubor) |
+| `IOS_P12_PASSWORD` | Bitwarden (sdílený) — musí být ze stejného exportu jako base64 |
 | `IOS_KEYCHAIN_PASSWORD` | Bitwarden (sdílený) |
 | `IOS_PROVISION_PROFILE_BASE64` | `Apple/<AppName>/*.mobileprovision` |
-| `APPSTORE_ISSUER_ID` | skript (`edeaacd0-9ce8-4fae-91b7-e451efabc799`) |
+| `APPSTORE_ISSUER_ID` | skript (`$ASC_ISSUER_ID`) |
 | `APP_STORE_CONNECT_API_ISSUER_ID` | skript (stejná hodnota — workflow čte tento název) |
-| `APP_STORE_CONNECT_API_KEY_ID` | `5YH964A9M4` |
-| `APP_STORE_CONNECT_API_KEY_BASE64` | base64 z `Apple/_Keys/AuthKey_5YH964A9M4.p8` |
+| `APP_STORE_CONNECT_API_KEY_ID` | `$ASC_KEY_ID` |
+| `APP_STORE_CONNECT_API_KEY_BASE64` | base64 z `Apple/_Keys/AuthKey_$ASC_KEY_ID.p8` |
 | `ANDROID_KEYSTORE_BASE64` | `Android/<AppName>/upload-keystore.jks` |
 | `ANDROID_KEYSTORE_PASSWORD` | Bitwarden → `<AppName> Android Signing` |
 | `ANDROID_KEY_ALIAS` | `upload` |
@@ -220,7 +221,7 @@ Musí existovat (minimálně):
 ## Krok 8 — Commit + první tag
 
 ```bash
-cd /Users/ol1n/Dev/GitHub/<AppName>
+cd $DEV_ROOT/<AppName>
 
 # Commitni všechny workflow změny
 git add .github/
@@ -307,8 +308,9 @@ skoro jistě tohle — pár v BW je v pořádku.
 # 1) Systémový openssl je LibreSSL → moderní p12 neumí, hlásí "invalid password" i pro správné heslo!
 #    Vždy použij OpenSSL 3:
 OSSL=$(brew --prefix openssl@3)/bin/openssl
-# 2) Heslo i base64 ber z BW (NE z volného souboru distribution.p12 — ten bývá stale):
-B64=$(bw get notes "CI / IOS_P12_BASE64"); PW=$(bw get password "CI / IOS_P12_PASSWORD")
+# 2) Heslo i base64 ber z BW (NE z volného souboru distribution.p12 — ten bývá stale).
+#    Názvy položek viz scripts/setup-gh-secrets.sh:
+B64=$(bw get notes "$BW_P12_NOTE"); PW=$(bw get password "$BW_P12_PASSWORD_ITEM")
 T=$(mktemp); printf '%s' "$B64" | base64 --decode > "$T"
 "$OSSL" pkcs12 -in "$T" -passin pass:"$PW" -noout && echo OK || echo BAD; rm -f "$T"
 # u starších p12 případně přidej -legacy
@@ -346,7 +348,7 @@ nebyly, chyba by byla o autentizaci, ne o Bundle ID.
 Aktuální skript nastaví oba. Ověř, že existují oba a mají délku 36:
 ```bash
 gh secret list --repo lioilsources/<AppName> | grep -i issuer
-gh secret set APP_STORE_CONNECT_API_ISSUER_ID --repo ... --body "edeaacd0-9ce8-4fae-91b7-e451efabc799"
+gh secret set APP_STORE_CONNECT_API_ISSUER_ID --repo ... --body "$ASC_ISSUER_ID"
 ```
 
 ### Android — Firebase upload selže (HTTP 400)

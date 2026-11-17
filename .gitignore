@@ -25,3 +25,17 @@ Android/**/google-services.json
 # belongs in Bitwarden and reaches CI as the UNITY_LICENSE secret.
 *.alf
 *.ulf
+# devconv:start
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.jks
+key.properties
+.claude/settings.local.json
+CLAUDE.local.md
+# devconv:end
+.venv/
+__pycache__/
+*.pyc
