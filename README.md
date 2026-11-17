@@ -13,7 +13,7 @@ Distribution/
 │   └── <AppName>/
 │       └── upload-keystore.jks      ← podpisový keystore pro Google Play
 ├── Apple/
-│   ├── Key/
+│   ├── _Keys/
 │   │   └── AuthKey_<KeyID>.p8       ← sdílený App Store Connect API klíč
 │   └── <AppName>/
 │       └── *.mobileprovision        ← App Store Distribution profil pro danou appku
@@ -29,13 +29,15 @@ Už nastaveno, není potřeba řešit pro každou appku.
 
 | Co | Kde |
 |----|-----|
-| iOS Distribution Certificate (`.p12`) | Bitwarden → `CI / IOS_P12_BASE64` |
-| Heslo k certifikátu | Bitwarden → `CI / IOS_P12_PASSWORD` |
-| Keychain password | Bitwarden → `CI / IOS_KEYCHAIN_PASSWORD` |
-| Apple Team ID | Bitwarden → `CI / IOS_TEAM_ID` |
-| App Store Connect API Issuer ID | Bitwarden → `CI / ASC_API_ISSUER_ID` |
-| App Store Connect API Key ID | Bitwarden → `CI / ASC_API_KEY_ID` |
-| App Store Connect API Private Key | `Apple/Key/AuthKey_<KeyID>.p8` |
+| iOS Distribution Certificate (`.p12`, base64) | Bitwarden (sdílená poznámka) |
+| Heslo k certifikátu | Bitwarden |
+| Keychain password | Bitwarden |
+| Apple Team ID | Bitwarden |
+| App Store Connect API Issuer ID | Bitwarden |
+| App Store Connect API Key ID | Bitwarden |
+| App Store Connect API Private Key | `Apple/_Keys/AuthKey_<KeyID>.p8` |
+
+Názvy Bitwarden položek čte `scripts/setup-gh-secrets.sh`; do dokumentace se nepíšou.
 
 ---
 
@@ -91,7 +93,7 @@ Bez `export` script proměnnou nevidí a zeptá se na heslo znovu.
 ### Spuštění
 
 ```bash
-cd /Users/ol1n/Dev/Distribution
+cd $DEV_ROOT/Distribution
 ./scripts/setup-gh-secrets.sh --repo <owner/repo> --app <AppName>
 ```
 
@@ -119,7 +121,7 @@ Po spuštění skript nastaví těchto 12 secrets:
 | `IOS_TEAM_ID` | Bitwarden |
 | `APPSTORE_ISSUER_ID` | Bitwarden |
 | `APPSTORE_API_KEY_ID` | Bitwarden |
-| `APPSTORE_API_PRIVATE_KEY` | `Apple/Key/AuthKey_*.p8` |
+| `APPSTORE_API_PRIVATE_KEY` | `Apple/_Keys/AuthKey_<KeyID>.p8` |
 | `IOS_PROVISION_PROFILE_BASE64` | `Apple/<AppName>/*.mobileprovision` |
 | `ANDROID_KEYSTORE_BASE64` | `Android/<AppName>/upload-keystore.jks` |
 | `ANDROID_KEYSTORE_PASSWORD` | Bitwarden → `<AppName> Android Signing` |
@@ -170,15 +172,11 @@ gh secret set FIREBASE_SERVICE_ACCOUNT_KEY --repo lioilsources/<AppName> < servi
 ### Krok 5 — Align CI/CD workflows (skripty)
 
 ```bash
-cd /Users/ol1n/Dev/Distribution
+cd $DEV_ROOT/Distribution
 
-# CI workflow — align-project.sh ho nekopíruje, přidej ručně
-cp /Users/ol1n/Dev/GitHub/Kiran/.github/workflows/ci.yml \
-   /Users/ol1n/Dev/GitHub/<AppName>/.github/workflows/
-
-# Release workflows — app-dir je "." pokud appka není v subdirectory
+# ci.yml i release workflows z golden workflows/ — app-dir je "." pokud appka není v subdirectory
 ./scripts/align-project.sh \
-  --target /Users/ol1n/Dev/GitHub/<AppName> \
+  --target $DEV_ROOT/<AppName> \
   --app-dir <app-dir> \
   --app-name <AppName> \
   --bundle-id com.ol1n.<bundleid> \
@@ -205,8 +203,8 @@ git add Android/<AppName>/ && git commit -m "Add Android keystore for <AppName>"
 ### Krok 7 — Test release
 
 ```bash
-git -C /Users/ol1n/Dev/GitHub/<AppName> tag v0.1.0-alpha
-git -C /Users/ol1n/Dev/GitHub/<AppName> push origin v0.1.0-alpha
+git -C $DEV_ROOT/<AppName> tag v0.1.0-alpha
+git -C $DEV_ROOT/<AppName> push origin v0.1.0-alpha
 # Sleduj průběh: github.com/lioilsources/<AppName>/actions
 ```
 

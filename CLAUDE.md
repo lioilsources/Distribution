@@ -1,24 +1,31 @@
-# CLAUDE.md — Distribution
+# Distribution
 
-Tento soubor popisuje klíčové poznatky, pasti a pravidla pro práci s CI/CD v tomto repozitáři.
-Čte ho Claude Code při každém sezení.
+## Účel
+Sdílené CI/CD pro všechny Flutter appky `lioilsources`: golden release workflowy, skripty
+pro GitHub secrets a lokální (necommitované) podpisové klíče. Release workflowy odsud
+přebírají všechny appky, takže změna tady se propíše všude.
 
----
-
-## Struktura repozitáře
-
+## Build a test
+Repo nemá build. Gate před pushem:
 ```
-Distribution/
-├── Apple/
-│   ├── Key/AuthKey_5YH964A9M4.p8   ← ASC API klíč (sdílený, všechny appky)
-│   ├── distribution.p12             ← iOS Distribution certifikát (sdílený)
-│   └── <AppName>/*.mobileprovision  ← provisioning profil pro danou appku
-├── Android/
-│   └── <AppName>/upload-keystore.jks
-├── scripts/
-│   ├── setup-gh-secrets.sh          ← nastaví 12+ GitHub secrets
-│   └── align-project.sh             ← zkopíruje a přizpůsobí workflow šablony
-└── workflows/                       ← šablony (zdroj pravdy pro release-ios.yml, release-android.yml)
+bash -n scripts/*.sh && python3 -I -m py_compile scripts/asc-check.py
+```
+Použití (detail v `README.md`, celý postup nové appky v `SKILL.md`):
+```
+export BW_SESSION=$(bw unlock --raw)
+./scripts/setup-gh-secrets.sh --repo lioilsources/<AppName> --app <AppName>
+./scripts/align-project.sh --target $DEV_ROOT/<AppName> --app-dir <dir> --app-name <AppName> \
+  --bundle-id com.ol1n.<id> --repo lioilsources/<AppName> [--dry-run]
+```
+
+## Mapa
+```
+Apple/_Keys/          ← ASC API klíč AuthKey_<KeyID>.p8, záloha distribution.p12 (gitignore)
+Apple/<AppName>/      ← *.mobileprovision dané appky (gitignore)
+Android/<AppName>/    ← upload-keystore.jks, google-services.json (gitignore)
+scripts/              ← setup-gh-secrets.sh, align-project.sh, asc-check.py, diag-ios-*.sh
+workflows/            ← golden šablony ci.yml + release-{ios,android,macos,windows,linux}.yml
+docs/ci-pasti.md      ← iOS signing, Android, secrets, tabulka chyb
 ```
 
 ### Přehled appek
@@ -37,149 +44,22 @@ Distribution/
 | Skatepark | lioilsources/ChrestysSkatepark | `rattleramp` | `Skatepark` | `com.ol1n.chrestysSkatepark` |
 | PMTracker | lioilsources/PMTracker | `app` | `PMTracker` | `com.ol1n.pmtracker` |
 
----
+## Invarianty
+- **Golden = `workflows/`.** `align-project.sh` z něj instaluje `ci.yml`, `release-ios.yml`,
+  `release-android.yml` vždy a `release-{macos,windows,linux}.yml` jen pro platformy, jejichž
+  adresář appka má. Substituce (Python, bez regexů): `tyrian_mobile`→app-dir,
+  `com.ol1n.kiran`→bundle, `Kiran`→app-name, a `tyrian_mobile.app`→`<PRODUCT_NAME>.app`
+  (macOS produkt z `macos/Runner/Configs/AppInfo.xcconfig`, proto se přejmenuje dřív než working-dir).
+- **Kiran je referenční appka:** opravy workflow se odladí v Kiranu a hned se vrátí do golden:
+  `cp $DEV_ROOT/Kiran/.github/workflows/{ci,release-android,release-ios,release-linux,release-macos,release-windows}.yml workflows/`.
+  Jinak se příští appka nasadí se starým kódem. Ověř: `align-project.sh --target $DEV_ROOT/Kiran
+  --app-dir tyrian_mobile --app-name Kiran --bundle-id com.ol1n.kiran --repo lioilsources/Kiran --dry-run`
+  musí hlásit „already aligned“ u všech.
+- iOS p12 se bere z Bitwarden poznámky, ne z volného `distribution.p12` (bývá stale).
+- Klíče, certifikáty, profily a keystory se nikdy necommitují (`.gitignore`). Keystore nikdy nemaž.
+- ID (Team ID, Issuer ID, Key ID) do docs nepiš; jsou v Bitwardenu a v `.env` (vzor `.env.example`).
 
-## Kritické poznatky — iOS podepisování (Xcode 26 / macos-26)
-
-### 1. PROVISIONING_PROFILE_SPECIFIER musí obsahovat UUID, ne jméno
-
-Na runneru `macos-26` (Xcode 26) **nefunguje lookup profilu podle jména** — Xcode profil nenajde,
-i když je nainstalovaný v `~/Library/MobileDevice/Provisioning Profiles/`.
-**Řešení:** injektovat UUID přímo do `project.pbxproj`.
-
-### 2. `flutter build ios --no-codesign` může odstranit uvozovky z pbxproj
-
-Xcode 26 normalizuje pbxproj a mění `"CI_PROFILE_NAME"` (s uvozovkami) na `CI_PROFILE_NAME` (bez).
-Proto musí sed injection pokrýt **obě varianty**:
-
-```bash
-sed -i '' \
-  -e "s/\"CI_PROFILE_NAME\"/\"$PROFILE_UUID\"/g" \
-  -e "s/CI_PROFILE_NAME/\"$PROFILE_UUID\"/g" \
-  ios/Runner.xcodeproj/project.pbxproj
-```
-
-### 3. DEVELOPMENT_TEAM čerpat z profilu, ne ze secretu
-
-Secret `IOS_TEAM_ID` může být prázdný nebo špatný. Místo toho extrahovat přímo z mobileprovision:
-
-```bash
-TEAM_ID=$(echo "$DECODED" | plutil -extract TeamIdentifier.0 raw -)
-echo "PROFILE_TEAM_ID=$TEAM_ID" >> $GITHUB_ENV
-```
-
-Pak v archive kroku: `DEVELOPMENT_TEAM=$PROFILE_TEAM_ID` (env proměnná z předchozího kroku).
-
-### 4. CODE_SIGN_IDENTITY NESMÍ být na příkazové řádce xcodebuild archive
-
-Přidání `CODE_SIGN_IDENTITY="Apple Distribution"` jako build setting na příkazové řádce
-rozbije SPM (Swift Package Manager) pluginy — ty mají Automatic signing a konflikují
-s explicitní distribuční identitou.
-
-**Správně:** `CODE_SIGN_IDENTITY = "Apple Distribution"` musí být v `project.pbxproj`
-v Release konfiguraci cíle Runner — a nikde jinde se to nenastavuje.
-
-### 5. project.pbxproj Release konfigurace — povinné hodnoty
-
-```
-CODE_SIGN_IDENTITY = "Apple Distribution";
-CODE_SIGN_STYLE = Manual;
-DEVELOPMENT_TEAM = <TeamID>;
-PROVISIONING_PROFILE_SPECIFIER = "CI_PROFILE_NAME";
-```
-
-`CI_PROFILE_NAME` je placeholder, který CI nahradí UUID profilu.
-Pokud chybí `CODE_SIGN_IDENTITY`, Xcode 26 sáhne po Development certifikátu a build selže.
-
----
-
-## Kritické poznatky — Android
-
-### Race condition při souběžném iOS + Android CI
-
-Když iOS a Android workflow běží současně pro stejný tag, oba se pokoušejí vytvořit
-GitHub Release. Druhý neuspěje s chybou `already_exists` a zablokuje Firebase upload.
-
-**Fix:** `continue-on-error: true` na kroku "Upload to GitHub Release":
-
-```yaml
-- name: Upload to GitHub Release
-  if: startsWith(github.ref, 'refs/tags/')
-  continue-on-error: true
-  uses: softprops/action-gh-release@v2
-```
-
----
-
-## Kritické poznatky — Secrets
-
-### APPSTORE_ISSUER_ID — Bitwarden položka je prázdná
-
-Bitwarden item `CI / ASC_API_ISSUER_ID` **nemá nastavenou hodnotu** (password field je prázdný).
-Skript `setup-gh-secrets.sh` proto nastaví secret na garbage hodnotu (1 znak).
-
-**Správný Issuer ID:** `edeaacd0-9ce8-4fae-91b7-e451efabc799`
-
-Pro každou novou appku je nutné ho nastavit ručně po spuštění skriptu:
-
-```bash
-gh secret set APPSTORE_ISSUER_ID \
-  --repo lioilsources/<AppName> \
-  --body "edeaacd0-9ce8-4fae-91b7-e451efabc799"
-```
-
-Nebo opravit Bitwarden item `CI / ASC_API_ISSUER_ID` → password field → UUID výše.
-
-### Jak ověřit správnost secretu
-
-Přidej do TestFlight kroku před `xcrun altool`:
-```bash
-echo "Key ID length: ${#CLEAN_KEY_ID}, Issuer ID length: ${#CLEAN_ISSUER}"
-```
-Issuer ID musí mít délku **36** (UUID s pomlčkami). Pokud je jiná, secret je špatný.
-
-### Pojmenování secretů — nesoulad
-
-`setup-gh-secrets.sh` nastavuje: `APPSTORE_ISSUER_ID`, `APPSTORE_API_KEY_ID`, `APPSTORE_API_PRIVATE_KEY`  
-Workflow šablona používá: `APPSTORE_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_KEY_BASE64`
-
-Pro nové appky musí být nastaveny OBOJÍ nebo workflow aktualizován.
-Kiran a MirrorBooth mají navíc starší variantu `APP_STORE_CONNECT_API_ISSUER_ID` (z května 2026).
-
----
-
-## Workflow šablony — kde je pravda (GOLDEN)
-
-**`Distribution/workflows/` je jediný zdroj pravdy** (golden) pro `align-project.sh`.
-Skript z něj bere všech 6 šablon a instaluje je do cílové appky:
-- `ci.yml` + `release-ios.yml` + `release-android.yml` — vždy
-- `release-{macos,windows,linux}.yml` — jen pokud cílová appka má daný platform adresář
-
-Substituce (Python, bez regexů): `tyrian_mobile`→app-dir, `com.ol1n.kiran`→bundle,
-`Kiran`→app-name, a **`tyrian_mobile.app`→`<PRODUCT_NAME>.app`** (macOS produkt se čte
-z `macos/Runner/Configs/AppInfo.xcconfig`, proto se přejmenuje dřív než working-dir).
-
-⚠️ **Po jakékoliv opravě v produkčním workflow (Kiran = referenční) re-syncni golden:**
-```bash
-cp GitHub/Kiran/.github/workflows/{ci,release-android,release-ios,release-linux,release-macos,release-windows}.yml \
-   Distribution/workflows/
-```
-Jinak se příští appka nasadí se starým kódem. Ověř: `align-project.sh --target GitHub/Kiran
---app-dir tyrian_mobile --app-name Kiran --bundle-id com.ol1n.kiran --repo lioilsources/Kiran --dry-run`
-musí hlásit „already aligned" u všech.
-
----
-
-## Časté chyby a jejich příznaky
-
-| Příznak | Příčina | Fix |
-|---------|---------|-----|
-| `No profile for team matching 'XYZ' found` | Xcode 26 nenajde profil podle jména | Inject UUID místo jména |
-| `project 'Runner' is damaged - parse error` | flutter build smaže uvozovky → sed vyrobil nevalidní pbxproj | Dvě sed expresky (quoted + unquoted) |
-| `X has conflicting provisioning settings` | `CODE_SIGN_IDENTITY` na cmd line aplikuje na SPM targety | Odstranit z xcodebuild cmd, ponechat jen v pbxproj |
-| `No signing certificate iOS Distribution found` | Špatný `DEVELOPMENT_TEAM` nebo chybí `CODE_SIGN_IDENTITY` v Release config | Čerpat TEAM_ID z profilu; přidat `CODE_SIGN_IDENTITY` do pbxproj |
-| `does not match the selected team` | `IOS_TEAM_ID` secret je prázdný nebo špatný | Čerpat TEAM_ID z mobileprovision přímo |
-| `Expected --api-issuer argument to have a value` | `APPSTORE_ISSUER_ID` secret je garbage (Bitwarden prázdný) | Nastavit ručně: `edeaacd0-9ce8-4fae-91b7-e451efabc799` |
-| `Cannot determine the Apple ID from Bundle ID 'X'` | Appka s bundle ID X v ASC není (jiný tým, velikost písmen), **je založená jen pro jinou platformu** (Papanek: jen macOS), nebo `APP_STORE_CONNECT_API_*` secrets k sobě nepatří | `scripts/asc-check.py` (spouští ho i `setup-gh-secrets.sh`): exit 3 = založit appku, exit 4 = Add Platform → iOS, exit 2 = opravit secrets |
-| Firebase upload přeskočen (skipped) | GitHub Release krok selhal s `already_exists` | `continue-on-error: true` na Release kroku |
-| `Run Release iOS has already completed` | `gh run watch` zachytil starý run | Zkontrolovat ID nového runu: `gh run list --limit 3` |
+## Kam dál
+- `docs/ci-pasti.md`: iOS podepisování na Xcode 26, Android race, secrets, tabulka chyb.
+- `SKILL.md`: krok za krokem nová appka → Firebase + TestFlight, troubleshooting.
+- `README.md`: struktura, sdílené secrets, příklady spuštění skriptů.

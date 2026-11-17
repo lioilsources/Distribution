@@ -20,12 +20,12 @@
 #
 # Usage:
 #   ./align-project.sh \
-#     --target /Users/ol1n/Dev/GitHub/MirrorBooth \
+#     --target $DEV_ROOT/MirrorBooth \
 #     --app-dir  mirrorbooth \
 #     --app-name MirrorBooth \
 #     --bundle-id com.ol1n.mirrorbooth \
 #     --repo lioilsources/MirrorBooth \
-#     [--source /Users/ol1n/Dev/GitHub/Kiran] \
+#     [--source $DEV_ROOT/Kiran] \
 #     [--dry-run]
 
 set -euo pipefail
@@ -68,7 +68,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$TARGET_DIR" ]] || die "--target is required  (e.g. /Users/ol1n/Dev/GitHub/MirrorBooth)"
+[[ -n "$TARGET_DIR" ]] || die "--target is required  (e.g. \$DEV_ROOT/MirrorBooth)"
 [[ -n "$APP_DIR"    ]] || die "--app-dir is required  (e.g. mirrorbooth)"
 [[ -n "$APP_NAME"   ]] || die "--app-name is required  (e.g. MirrorBooth)"
 [[ -n "$BUNDLE_ID"  ]] || die "--bundle-id is required  (e.g. com.ol1n.mirrorbooth)"
