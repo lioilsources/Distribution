@@ -27,6 +27,9 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          # Pinned like the other workflows: an unpinned stable pulls a new Flutter
+          # whose Gradle/Xcode minimum can break a release overnight.
+          flutter-version: '3.44.x'
           channel: stable
           cache: true
 
