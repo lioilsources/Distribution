@@ -11,6 +11,8 @@ Exit 3 = appka s tímto bundle ID v ASC není -> altool pak hlásí
          "Cannot determine the Apple ID from Bundle ID" (My Apps -> + -> New App).
 Exit 4 = appka existuje, ale ne pro --platform (výchozí IOS); altool hlásí totéž.
          Papanek 2026-11-05: appka založená jen pro macOS -> Add Platform -> iOS.
+Exit 5 = appka nemá interní TestFlight skupinu s přístupem ke všem buildům -> upload projde,
+         ale pozvánka nikomu nepřijde. AstroMat, AlienMatch, Kitchen, Sample16 2026-11-20.
 """
 import argparse, base64, json, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 
@@ -83,7 +85,17 @@ def main() -> int:
               f"    Chybí {a.platform}: v ASC otevři appku → Add Platform. Jinak upload selže hláškou\n"
               f"    'Cannot determine the Apple ID from Bundle ID'.", file=sys.stderr)
         return 4
-    print(f"✅  ASC: klíč funguje, appka '{name}' ({a.bundle_id}) existuje pro {a.platform}")
+    req = urllib.request.Request(f"https://api.appstoreconnect.apple.com/v1/apps/{apps[0]['id']}/betaGroups",
+                                 headers=req.headers)
+    groups = [g["attributes"] for g in json.load(urllib.request.urlopen(req, timeout=30)).get("data", [])]
+    internal = [g["name"] for g in groups if g["isInternalGroup"] and g.get("hasAccessToAllBuilds")]
+    if a.platform == "IOS" and not internal:
+        print(f"❌  Appka '{name}' nemá interní TestFlight skupinu s přístupem ke všem buildům.\n"
+              f"    Upload projde, ale pozvánka nikomu nepřijde. ASC → TestFlight → Internal Testing → +\n"
+              f"    → 'Alfa', zapnout automatickou distribuci a přidat testery.", file=sys.stderr)
+        return 5
+    print(f"✅  ASC: klíč funguje, appka '{name}' ({a.bundle_id}) existuje pro {a.platform}"
+          + (f", TestFlight skupina: {', '.join(internal)}" if internal else ""))
     return 0
 
 

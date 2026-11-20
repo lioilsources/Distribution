@@ -21,6 +21,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.50.x'
           channel: stable
           cache: true
 
@@ -143,6 +144,38 @@ jobs:
             --file "$(ls $RUNNER_TEMP/ipa/*.ipa)" \
             --apiKey "$API_KEY_ID" \
             --apiIssuer "$API_ISSUER_ID"
+
+      - name: Check TestFlight internal group
+        # altool only uploads; without an internal beta group that has access to
+        # all builds nobody gets a TestFlight invite (AstroMat, AlienMatch,
+        # Kitchen, Sample16 on 2026-11-20). Warns, never fails the release.
+        continue-on-error: true
+        env:
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$RUNNER_TEMP/Runner.xcarchive/Info.plist")
+          python3 - "$BUNDLE_ID" <<'PY'
+          import base64, json, os, subprocess, sys, time, urllib.parse, urllib.request
+          kid, iss, bundle = os.environ["API_KEY_ID"], os.environ["API_ISSUER_ID"], sys.argv[1]
+          key = os.path.expanduser(f"~/.appstoreconnect/private_keys/AuthKey_{kid}.p8")
+          b = lambda x: base64.urlsafe_b64encode(x).rstrip(b"=")
+          h = b(json.dumps({"alg": "ES256", "kid": kid, "typ": "JWT"}).encode())
+          c = b(json.dumps({"iss": iss, "iat": int(time.time()), "exp": int(time.time()) + 600, "aud": "appstoreconnect-v1"}).encode())
+          der = subprocess.run(["openssl", "dgst", "-sha256", "-sign", key], input=h + b"." + c, capture_output=True, check=True).stdout
+          i, sig = (2 if der[1] < 0x80 else 3), b""
+          for _ in range(2):
+              n = der[i + 1]; sig += der[i + 2:i + 2 + n].lstrip(b"\0").rjust(32, b"\0"); i += 2 + n
+          tok = (h + b"." + c + b"." + b(sig)).decode()
+          get = lambda p: json.load(urllib.request.urlopen(urllib.request.Request("https://api.appstoreconnect.apple.com" + p, headers={"Authorization": "Bearer " + tok})))
+          app = get("/v1/apps?filter[bundleId]=" + urllib.parse.quote(bundle))["data"][0]["id"]
+          groups = [g["attributes"] for g in get(f"/v1/apps/{app}/betaGroups")["data"]]
+          ok = [g["name"] for g in groups if g["isInternalGroup"] and g.get("hasAccessToAllBuilds")]
+          if ok:
+              print(f"TestFlight internal group(s) with all builds: {', '.join(ok)}")
+          else:
+              print(f"::warning title=No TestFlight testers::{bundle} has no internal beta group with access to all builds, so nobody gets an invite. In App Store Connect: TestFlight -> Internal Testing -> + -> 'Alfa', enable automatic distribution, add testers.")
+          PY
 
       - name: Upload IPA to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
