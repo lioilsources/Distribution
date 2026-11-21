@@ -51,7 +51,9 @@ jobs:
         run: |
           # An app without iOS plugins has no Podfile (Flutter only writes one
           # when a plugin needs CocoaPods) — pod install would fail on it.
-          if [ -f Podfile ]; then pod install; else echo "No Podfile (no iOS plugins) — skipping"; fi
+          # --repo-update: the runner's spec repo can predate a pod the lock
+          # asks for ("None of your spec sources contain a spec satisfying").
+          if [ -f Podfile ]; then pod install --repo-update; else echo "No Podfile (no iOS plugins) — skipping"; fi
 
       - name: Import signing certificate
         env:
